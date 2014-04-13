@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="SBT: SBT: org.apache.lucene:lucene-queryparser:4.6.1">
+    <CLASSES>
+      <root url="jar://$USER_HOME$/.ivy2/cache/org.apache.lucene/lucene-queryparser/jars/lucene-queryparser-4.6.1.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$USER_HOME$/.ivy2/cache/org.apache.lucene/lucene-queryparser/docs/lucene-queryparser-4.6.1-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$USER_HOME$/.ivy2/cache/org.apache.lucene/lucene-queryparser/srcs/lucene-queryparser-4.6.1-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>
