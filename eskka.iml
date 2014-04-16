@@ -36,12 +36,6 @@
     <orderEntry type="library" name="SBT: com.google.protobuf:protobuf-java:2.5.0" level="project" />
     <orderEntry type="library" name="SBT: com.spatial4j:spatial4j:0.4.1" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe:config:1.2.0" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.10:2.3.1" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.10:2.3.1" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-contrib_2.10:2.3.1" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-persistence-experimental_2.10:2.3.1" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.10:2.3.1" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-slf4j_2.10:2.3.1" level="project" />
     <orderEntry type="library" name="SBT: io.netty:netty:3.8.0.Final" level="project" />
     <orderEntry type="library" name="SBT: org.apache.lucene:lucene-analyzers-common:4.7.0" level="project" />
     <orderEntry type="library" name="SBT: org.apache.lucene:lucene-codecs:4.7.0" level="project" />
@@ -68,8 +62,12 @@
     <orderEntry type="library" name="SBT: org.iq80.leveldb:leveldb:0.5" level="project" />
     <orderEntry type="library" name="SBT: org.iq80.leveldb:leveldb-api:0.5" level="project" />
     <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.10.4" level="project" />
-    <orderEntry type="library" name="SBT: org.slf4j:slf4j-api:1.7.5" level="project" />
     <orderEntry type="library" name="SBT: org.uncommons.maths:uncommons-maths:1.2.2a" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.10:2.3.0" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.10:2.3.0" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-contrib_2.10:2.3.0" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-persistence-experimental_2.10:2.3.0" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.10:2.3.0" level="project" />
   </component>
 </module>
 
