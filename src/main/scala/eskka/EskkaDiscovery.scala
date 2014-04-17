@@ -2,42 +2,41 @@ package eskka
 
 import java.util.concurrent.TimeUnit
 
+import scala.Some
 import scala.collection.mutable
 import scala.collection.JavaConversions._
+import scala.concurrent.{Await, Future, Promise}
+import scala.concurrent.duration.Duration
+import scala.util.{Failure, Success}
 
 import akka.actor._
-import akka.cluster.Cluster
-import akka.contrib.pattern.{ ClusterSingletonManager, ClusterSingletonProxy }
+import akka.cluster.{Cluster, ClusterEvent}
+import akka.contrib.pattern.{ClusterSingletonManager, ClusterSingletonProxy}
 import akka.pattern.ask
 import akka.util.Timeout
 
 import com.google.common.collect.ImmutableList
 import com.typesafe.config.ConfigFactory
 import org.elasticsearch.Version
-import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
-import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodeService }
+import org.elasticsearch.cluster.{ClusterName, ClusterService, ClusterState}
+import org.elasticsearch.cluster.node.{DiscoveryNode, DiscoveryNodeService}
 import org.elasticsearch.cluster.routing.allocation.AllocationService
 import org.elasticsearch.common.component.AbstractLifecycleComponent
 import org.elasticsearch.common.inject.Inject
 import org.elasticsearch.common.settings.Settings
-import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySettings, InitialStateDiscoveryListener }
+import org.elasticsearch.discovery.{Discovery, DiscoveryService, DiscoverySettings, InitialStateDiscoveryListener}
 import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.transport.TransportService
-import scala.concurrent.Future
 
-import scala.util.Failure
-import scala.Some
-import scala.util.Success
-
-class EskkaDiscovery @Inject() (private[this] val settings: Settings,
-  private[this] val clusterName: ClusterName,
-  private[this] val transportService: TransportService,
-  private[this] val clusterService: ClusterService,
-  private[this] val discoveryNodeService: DiscoveryNodeService,
-  private[this] val discoverySettings: DiscoverySettings,
-  private[this] val version: Version)
-    extends AbstractLifecycleComponent[Discovery](settings) with Discovery {
+class EskkaDiscovery @Inject()(private[this] val settings: Settings,
+                               private[this] val clusterName: ClusterName,
+                               private[this] val transportService: TransportService,
+                               private[this] val clusterService: ClusterService,
+                               private[this] val discoveryNodeService: DiscoveryNodeService,
+                               private[this] val discoverySettings: DiscoverySettings,
+                               private[this] val version: Version)
+  extends AbstractLifecycleComponent[Discovery](settings) with Discovery {
 
   import EskkaDiscovery._
 
@@ -73,7 +72,8 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
       "akka.remote.netty.tcp.hostname" -> hostname,
       "akka.remote.netty.tcp.port" -> port,
       "akka.cluster.roles" -> (if (seedNodes.exists(_.hostPort == s"${clusterName.value}@$hostname:$port"))
-        ImmutableList.of(masterRole) else ImmutableList.of()),
+        ImmutableList.of(masterRole)
+      else ImmutableList.of()),
       "akka.cluster.seed-nodes" -> ImmutableList.copyOf(seedNodes.map(_.toString)),
       s"akka.cluster.role.$masterRole.min-nr-of-members" -> new Integer((seedNodes.size + 1) / 2)
     )).withFallback(ConfigFactory.load())
@@ -110,11 +110,22 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   }
 
   override def doStop() {
+    logger.info("Leaving the cluster")
+    val p = Promise[Any]() // FIXME Can this be accomplished more cleanly?
+    cluster.subscribe(system.actorOf(Props(new Actor {
+      override def receive = {
+        case ClusterEvent.MemberExited(m) if m.address == cluster.selfAddress =>
+          p.success(Nil)
+          context.stop(self)
+      }
+    })), classOf[ClusterEvent.MemberEvent])
     cluster.leave(cluster.selfAddress)
+    Await.ready(p.future, Duration.Inf)
   }
 
   override def doClose() {
     system.shutdown()
+    system.awaitTermination()
   }
 
   override def addListener(listener: InitialStateDiscoveryListener) {
@@ -145,10 +156,29 @@ object EskkaDiscovery {
   val masterRole = "seed"
 
   private class PublishResponseHandler(ackListener: AckListener) extends Actor {
+
+    context.system.scheduler.scheduleOnce(Duration(60, TimeUnit.SECONDS), self, PoisonPill)
+
+    var expectedAcks = 0
+    var acksReceived = 0
+
     override def receive = {
+
+      case expectedAcks: Int =>
+        this.expectedAcks = expectedAcks
+        if (acksReceived > 0 && acksReceived == expectedAcks) {
+          context.stop(self)
+        }
+
       case Protocol.PublishAck(node, error) =>
         ackListener.onNodeAck(node, error.orNull)
+        acksReceived += 1
+        if (acksReceived == expectedAcks) {
+          context.stop(self)
+        }
+
     }
+
   }
 
 }

@@ -4,17 +4,17 @@ import java.util.concurrent.TimeUnit
 
 import scala.collection.immutable
 import scala.concurrent.Promise
+import scala.concurrent.duration.Duration
 
-import akka.actor.{ Actor, ActorLogging, RootActorPath }
-import akka.cluster.{ Cluster, ClusterEvent, Member }
-import akka.pattern.{ ask, pipe }
+import akka.actor.{Actor, ActorLogging, RootActorPath}
+import akka.cluster.{Cluster, ClusterEvent, Member}
+import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 
-import org.elasticsearch.cluster.{ ClusterService, ClusterState }
+import org.elasticsearch.cluster.{ClusterService, ClusterState}
 import org.elasticsearch.cluster.block.ClusterBlocks
-import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
+import org.elasticsearch.cluster.node.{DiscoveryNode, DiscoveryNodes}
 import org.elasticsearch.discovery.Discovery
-import scala.concurrent.duration.Duration
 
 class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends Actor with ActorLogging {
 
@@ -54,7 +54,9 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
 
     case Protocol.Publish(clusterState, ackHandler) =>
       log.info("publishing to {}", discoveredNodes)
-      for (m <- discoveredNodes.keys) {
+      val allButMe = discoveredNodes.keys.filter(_.address != cluster.selfAddress).toSeq
+      ackHandler ! allButMe.size
+      for (m <- allButMe) {
         context.actorSelection(RootActorPath(m.address) / "user" / "eskka-follower") ! Protocol.Publish(clusterState, ackHandler)
       }
 
@@ -97,6 +99,10 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
   private def whoYou(m: Member) = {
     implicit val whoYouTimeout = Timeout(5, TimeUnit.SECONDS)
     context.actorSelection(RootActorPath(m.address) / "user" / "eskka-follower") ? Protocol.WhoYou
+  }
+
+  override def postStop() {
+    drainage.cancel()
   }
 
 }
