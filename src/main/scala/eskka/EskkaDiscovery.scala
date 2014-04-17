@@ -26,8 +26,6 @@ import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.transport.TransportService
 import scala.concurrent.Future
 
-//import org.elasticsearch.rest._
-
 import scala.util.Failure
 import scala.Some
 import scala.util.Success
@@ -41,6 +39,8 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   private[this] val version: Version)
     extends AbstractLifecycleComponent[Discovery](settings) with Discovery {
 
+  import EskkaDiscovery._
+
   lazy val eskkaSettings = settings.getByPrefix("discovery.eskka")
 
   lazy val nodeId = DiscoveryService.generateNodeId(settings)
@@ -53,9 +53,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     version
   )
 
-  private[this] val publishTimeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
-
-  private[this] val masterRole = "seed"
+  private[this] lazy val publishTimeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
 
   private[this] lazy val system = ActorSystem(clusterName.value, config = actorSystemConfig)
 
@@ -70,19 +68,21 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   private def actorSystemConfig = {
     val hostname = eskkaSettings.get(".hostname", "")
     val port = eskkaSettings.getAsInt(".port", 0)
-    val seedNodeAddresses = eskkaSettings.getAsArray(".seed_nodes")
-    val seedNodes = ImmutableList.copyOf(seedNodeAddresses.map(addr => s"akka.tcp://${clusterName.value}@$addr"))
+    val seedNodes = eskkaSettings.getAsArray(".seed_nodes").map(hostPort => AddressFromURIString(s"akka.tcp://${clusterName.value}@$hostPort"))
     ConfigFactory.parseMap(Map(
       "akka.remote.netty.tcp.hostname" -> hostname,
       "akka.remote.netty.tcp.port" -> port,
-      "akka.cluster.roles" -> (if (seedNodeAddresses.contains(s"$hostname:$port")) ImmutableList.of(masterRole) else ImmutableList.of()),
-      "akka.cluster.seed-nodes" -> seedNodes,
+      "akka.cluster.roles" -> (if (seedNodes.exists(_.hostPort == s"${clusterName.value}@$hostname:$port"))
+        ImmutableList.of(masterRole) else ImmutableList.of()),
+      "akka.cluster.seed-nodes" -> ImmutableList.copyOf(seedNodes.map(_.toString)),
       s"akka.cluster.role.$masterRole.min-nr-of-members" -> new Integer((seedNodes.size + 1) / 2)
     )).withFallback(ConfigFactory.load())
   }
 
+  private def masterEligible = cluster.selfRoles.contains(masterRole)
+
   override def doStart() {
-    if (cluster.selfRoles.contains(masterRole)) {
+    if (masterEligible) {
       system.actorOf(ClusterSingletonManager.props(
         singletonProps = Props(classOf[Master], localNode, clusterService),
         singletonName = "eskka-master",
@@ -94,13 +94,16 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     import scala.concurrent.ExecutionContext.Implicits.global
     implicit val timeout = publishTimeout
 
-    Future.firstCompletedOf(Seq(
-      masterProxy ? Protocol.QualifiedCheckInit(localNode.id),
-      follower ? Protocol.CheckInit
-    )).onComplete({
+    val checkInit = follower ? Protocol.CheckInit
+    (if (masterEligible) {
+      // on a master node, follower won't process publsh
+      Future.firstCompletedOf(Seq(masterProxy ? Protocol.QualifiedCheckInit(localNode.id), checkInit))
+    } else {
+      checkInit
+    }).onComplete({
       case Success(transition) =>
         initialStateListeners.foreach(_.initialStateProcessed())
-        logger.info("Initial state processed, transition={}", transition.asInstanceOf[Object])
+        logger.info("Initial state processed -- {}", transition.asInstanceOf[Object])
       case Failure(e) =>
         logger.error("Initial state processing failed!", e)
     })
@@ -135,19 +138,18 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   override def setAllocationService(allocationService: AllocationService) {
   }
 
-  // REST handlers
-  //
-  //  restController.registerHandler(RestRequest.Method.GET, "/_state", new RestHandler {
-  //    override def handleRequest(request: RestRequest, channel: RestChannel) {
-  //      channel.sendResponse(new StringRestResponse(RestStatus.OK, cluster.state.toString))
-  //    }
-  //  })
-
 }
 
-class PublishResponseHandler(ackListener: AckListener) extends Actor {
-  override def receive = {
-    case Protocol.PublishAck(node, error) =>
-      ackListener.onNodeAck(node, error.orNull)
+object EskkaDiscovery {
+
+  val masterRole = "seed"
+
+  private class PublishResponseHandler(ackListener: AckListener) extends Actor {
+    override def receive = {
+      case Protocol.PublishAck(node, error) =>
+        ackListener.onNodeAck(node, error.orNull)
+    }
   }
+
 }
+

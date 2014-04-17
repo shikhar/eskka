@@ -1,18 +1,19 @@
 package eskka
 
-import scala.concurrent.{ Future, Promise }
+import scala.concurrent.Promise
+
+import akka.event.LoggingAdapter
 
 import org.elasticsearch.cluster.{ ClusterService, ClusterState, ProcessedClusterStateUpdateTask }
 import org.elasticsearch.common.Priority
-import akka.event.LoggingAdapter
 
 object SubmitClusterStateUpdate {
 
   def apply(log: LoggingAdapter,
     clusterService: ClusterService,
     source: String,
-    update: ClusterState => ClusterState,
-    promise: Promise[Protocol.Transition]): Future[Protocol.Transition] = {
+    update: ClusterState => ClusterState) = {
+    val promise = Promise[Protocol.Transition]()
     clusterService.submitStateUpdateTask(source, Priority.URGENT, new ProcessedClusterStateUpdateTask {
 
       override def execute(currentState: ClusterState): ClusterState = {

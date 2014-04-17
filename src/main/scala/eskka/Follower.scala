@@ -48,7 +48,7 @@ class Follower(localNode: DiscoveryNode, clusterService: ClusterService, masterP
         }
 
         builder.build
-    }, Promise())
+    })
 
   override def receive = {
 
