@@ -43,8 +43,6 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   lazy val eskkaSettings = settings.getByPrefix("discovery.eskka")
 
-  lazy val seedNodes = ImmutableList.copyOf(eskkaSettings.getAsArray(".seed_nodes").map(addr => s"akka.tcp://${clusterName.value}@$addr"))
-
   lazy val nodeId = DiscoveryService.generateNodeId(settings)
 
   lazy val localNode = new DiscoveryNode(
@@ -59,33 +57,39 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   private[this] val masterRole = "seed"
 
-  private[this] lazy val system = ActorSystem(
-    clusterName.value,
-    config = ConfigFactory.parseMap(Map(
-      "akka.remote.netty.tcp.port" -> eskkaSettings.getAsInt(".port", 0),
-      "akka.cluster.roles" -> ImmutableList.of(masterRole), // FIXME
-      "akka.cluster.seed-nodes" -> seedNodes,
-      s"akka.cluster.role.$masterRole.min-nr-of-members" -> new Integer((seedNodes.size + 1) / 2)
-    )).withFallback(ConfigFactory.load())
-  )
+  private[this] lazy val system = ActorSystem(clusterName.value, config = actorSystemConfig)
 
   private[this] lazy val cluster = Cluster(system)
 
-  private[this] lazy val masterProxy = system.actorOf(
-    ClusterSingletonProxy.defaultProps("/user/singleton-manager/eskka-master", masterRole)
-  )
+  private[this] lazy val masterProxy = system.actorOf(ClusterSingletonProxy.defaultProps("/user/singleton-manager/eskka-master", masterRole))
 
   private[this] lazy val follower = system.actorOf(Props(classOf[Follower], localNode, clusterService, masterProxy), "eskka-follower")
 
   private[this] val initialStateListeners = mutable.LinkedHashSet[InitialStateDiscoveryListener]()
 
+  private def actorSystemConfig = {
+    val hostname = eskkaSettings.get(".hostname", "")
+    val port = eskkaSettings.getAsInt(".port", 0)
+    val seedNodeAddresses = eskkaSettings.getAsArray(".seed_nodes")
+    val seedNodes = ImmutableList.copyOf(seedNodeAddresses.map(addr => s"akka.tcp://${clusterName.value}@$addr"))
+    ConfigFactory.parseMap(Map(
+      "akka.remote.netty.tcp.hostname" -> hostname,
+      "akka.remote.netty.tcp.port" -> port,
+      "akka.cluster.roles" -> (if (seedNodeAddresses.contains(s"$hostname:$port")) ImmutableList.of(masterRole) else ImmutableList.of()),
+      "akka.cluster.seed-nodes" -> seedNodes,
+      s"akka.cluster.role.$masterRole.min-nr-of-members" -> new Integer((seedNodes.size + 1) / 2)
+    )).withFallback(ConfigFactory.load())
+  }
+
   override def doStart() {
-    system.actorOf(ClusterSingletonManager.props(
-      singletonProps = Props(classOf[Master], localNode, clusterService),
-      singletonName = "eskka-master",
-      terminationMessage = PoisonPill,
-      role = Some(masterRole)
-    ), name = "singleton-manager")
+    if (cluster.selfRoles.contains(masterRole)) {
+      system.actorOf(ClusterSingletonManager.props(
+        singletonProps = Props(classOf[Master], localNode, clusterService),
+        singletonName = "eskka-master",
+        terminationMessage = PoisonPill,
+        role = Some(masterRole)
+      ), name = "singleton-manager")
+    }
 
     import scala.concurrent.ExecutionContext.Implicits.global
     implicit val timeout = publishTimeout
