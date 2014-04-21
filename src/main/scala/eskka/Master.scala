@@ -6,14 +6,14 @@ import scala.collection.immutable
 import scala.concurrent.Promise
 import scala.concurrent.duration.Duration
 
-import akka.actor.{Actor, ActorLogging, RootActorPath}
-import akka.cluster.{Cluster, ClusterEvent, Member}
-import akka.pattern.{ask, pipe}
+import akka.actor.{ Actor, ActorLogging, RootActorPath }
+import akka.cluster.{ Cluster, ClusterEvent, Member }
+import akka.pattern.{ ask, pipe }
 import akka.util.Timeout
 
-import org.elasticsearch.cluster.{ClusterService, ClusterState}
+import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.block.ClusterBlocks
-import org.elasticsearch.cluster.node.{DiscoveryNode, DiscoveryNodes}
+import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.discovery.Discovery
 
 class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends Actor with ActorLogging {
@@ -32,9 +32,9 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
 
   log.info("Master actor up on node [{}]", localNode)
 
-  cluster.registerOnMemberUp({
+  override def preStart() {
     cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent])
-  })
+  }
 
   private def discoveryNodes = {
     val builder = DiscoveryNodes.builder()
@@ -103,6 +103,7 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
 
   override def postStop() {
     drainage.cancel()
+    cluster.unsubscribe(self)
   }
 
 }

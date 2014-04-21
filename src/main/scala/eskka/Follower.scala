@@ -46,7 +46,6 @@ class Follower(localNode: DiscoveryNode, clusterService: ClusterService, masterP
           }
           builder.metaData(metaDataBuilder)
         }
-
         builder.build
     })
 
