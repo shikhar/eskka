@@ -10,7 +10,7 @@ object Build extends sbt.Build {
   ).settings(
       mainClass := Some("eskka.Boot"),
 
-      resolvers += Resolver.sonatypeRepo("releases"),
+      resolvers ++= Seq(Resolver.sonatypeRepo("releases"), Resolver.typesafeRepo("releases")),
 
       libraryDependencies ++= Seq(
         "com.google.guava" % "guava" % "16.0.1",
@@ -40,8 +40,8 @@ object Build extends sbt.Build {
   }
 
   object v {
-    val elasticsearch = "1.1.0"
-    val akka = "2.3.0"
+    val elasticsearch = "1.1.1"
+    val akka = "2.3.2"
   }
 
 }
