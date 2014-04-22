@@ -64,6 +64,8 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   private[this] lazy val follower = system.actorOf(Props(classOf[Follower], localNode, clusterService, masterProxy), "eskka-follower")
 
+  private[this] lazy val masterFD = system.actorOf(Props(classOf[MasterFailureDetector]))
+
   private[this] val initialStateListeners = mutable.LinkedHashSet[InitialStateDiscoveryListener]()
 
   private def actorSystemConfig = {
@@ -153,6 +155,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   }
 
   override def setAllocationService(allocationService: AllocationService) {
+    // TODO ZenDiscovery does eager re-routing around dead nodes
   }
 
 }
@@ -165,7 +168,7 @@ object EskkaDiscovery {
 
   private class PublishResponseHandler(ackListener: AckListener) extends Actor {
 
-    import scala.concurrent.ExecutionContext.Implicits.global
+    import context.dispatcher
 
     context.system.scheduler.scheduleOnce(Duration(60, TimeUnit.SECONDS), self, PoisonPill)
 

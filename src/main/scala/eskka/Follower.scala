@@ -15,7 +15,7 @@ class Follower(localNode: DiscoveryNode, clusterService: ClusterService, masterP
 
   log.info("Follower is up on node [{}]", localNode)
 
-  import scala.concurrent.ExecutionContext.Implicits.global
+  import context.dispatcher
 
   private[this] val firstSubmit = Promise[Protocol.Transition]()
 
