@@ -27,7 +27,7 @@ object Build extends sbt.Build {
 
   def standardSettings = Defaults.defaultSettings ++ Seq(
     organization := "eskka",
-    scalaVersion := "2.10.4",
+    scalaVersion := "2.11.0",
     version := "0.1",
     scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
   ) ++ packTask ++ com.typesafe.sbt.SbtScalariform.scalariformSettings

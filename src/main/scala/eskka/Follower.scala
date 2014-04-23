@@ -10,6 +10,8 @@ import akka.pattern.pipe
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.metadata.MetaData
 import org.elasticsearch.cluster.node.DiscoveryNode
+import org.elasticsearch.cluster.node.DiscoveryNodes.Delta
+import org.elasticsearch.cluster.routing.RoutingTable
 
 class Follower(localNode: DiscoveryNode, clusterService: ClusterService, masterProxy: ActorRef) extends Actor with ActorLogging {
 
@@ -59,27 +61,18 @@ class Follower(localNode: DiscoveryNode, clusterService: ClusterService, masterP
 
     case Protocol.Publish(clusterStateBytes, ackHandler) =>
       val clusterState = ClusterState.Builder.fromBytes(clusterStateBytes, localNode)
-
-      if (clusterState.nodes.masterNodeId == localNode.id) {
-
-        log.info("Ignoring Publish message with cluster state version [{}] as this is the master node", clusterState.version)
-
-      } else {
-
-        log.info("Submitting cluster state update version [{}]", clusterState.version)
-
-        submitUpdateFromMaster(clusterState).onComplete({
-          res =>
-            firstSubmit.tryComplete(res)
-            res match {
-              case Success(transition) =>
-                ackHandler ! Protocol.PublishAck(localNode, None)
-              case Failure(error) =>
-                ackHandler ! Protocol.PublishAck(localNode, Some(error))
-            }
-        })
-
-      }
+      require(clusterState.nodes.masterNodeId != localNode.id)
+      log.info("Submitting updated cluster state version [{}]", clusterState.version)
+      submitUpdateFromMaster(clusterState).onComplete({
+        res =>
+          firstSubmit.tryComplete(res)
+          res match {
+            case Success(transition) =>
+              ackHandler ! Protocol.PublishAck(localNode, None)
+            case Failure(error) =>
+              ackHandler ! Protocol.PublishAck(localNode, Some(error))
+          }
+      })
 
   }
 

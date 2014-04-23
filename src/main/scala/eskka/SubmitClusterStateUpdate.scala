@@ -17,9 +17,8 @@ object SubmitClusterStateUpdate {
     clusterService.submitStateUpdateTask(source, Priority.URGENT, new ProcessedClusterStateUpdateTask {
 
       override def execute(currentState: ClusterState): ClusterState = {
-        val newState = update(currentState)
-        log.info("SubmitClusterStateUpdate -- via source [{}] updated state is [{}]", source, newState)
-        newState
+        log.debug("SubmitClusterStateUpdate -- via source [{}]", source)
+        update(currentState)
       }
 
       override def clusterStateProcessed(source: String, oldState: ClusterState, newState: ClusterState) {

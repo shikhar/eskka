@@ -42,73 +42,65 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   import EskkaDiscovery._
 
-  lazy val eskkaSettings = settings.getByPrefix("discovery.eskka.")
-
-  lazy val nodeId = DiscoveryService.generateNodeId(settings)
-
-  lazy val localNode = new DiscoveryNode(
-    settings.get("name"),
-    nodeId,
-    transport.boundAddress().publishAddress(),
-    discoveryNodeService.buildAttributes(),
-    version
-  )
-
-  private[this] lazy val publishTimeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
-
-  private[this] lazy val system = ActorSystem(clusterName.value, config = actorSystemConfig)
-
-  private[this] lazy val cluster = Cluster(system)
-
-  private[this] lazy val masterProxy = system.actorOf(ClusterSingletonProxy.defaultProps("/user/singleton-manager/eskka-master", masterRole))
-
-  private[this] lazy val follower = system.actorOf(Props(classOf[Follower], localNode, clusterService, masterProxy), "eskka-follower")
-
-  private[this] lazy val masterFD = system.actorOf(Props(classOf[MasterFailureDetector]))
-
-  private[this] val initialStateListeners = mutable.LinkedHashSet[InitialStateDiscoveryListener]()
-
   private def actorSystemConfig = {
-    val clientNode = settings.getAsBoolean("node.client", false)
+    val nodeSettings = settings.getByPrefix("node.")
+    val isClientNode = nodeSettings.getAsBoolean("client", false)
+    val isMasterNode = nodeSettings.getAsBoolean("master", !isClientNode)
 
+    val eskkaSettings = settings.getByPrefix("discovery.eskka.")
     val bindHost = networkService.resolveBindHostAddress(eskkaSettings.get("host", "_non_loopback_")).getHostName
-    val bindPort = eskkaSettings.getAsInt("port", if (clientNode) 0 else defaultPort)
+    val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
     val publishHost = networkService.resolvePublishHostAddress(eskkaSettings.get("host", "_local_")).getHostName
-    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(publishHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$defaultPort")
+    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(publishHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
 
     ConfigFactory.parseMap(Map(
       "akka.remote.netty.tcp.hostname" -> bindHost,
       "akka.remote.netty.tcp.port" -> bindPort,
       "akka.cluster.seed-nodes" -> ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://${clusterName.value}@$hostPort")),
-      "akka.cluster.roles" -> (if (seedNodes.contains(s"$publishHost:$bindPort"))
-        ImmutableList.of(masterRole)
-      else ImmutableList.of()),
-      s"akka.cluster.role.$masterRole.min-nr-of-members" -> new Integer((seedNodes.size + 1) / 2)
+      "akka.cluster.roles" -> (if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()),
+      s"akka.cluster.min-nr-of-members" -> new Integer(quorumRequirement(seedNodes.size))
     )).withFallback(ConfigFactory.load())
   }
 
-  private def masterEligible = cluster.selfRoles.contains(masterRole)
+  private[this] lazy val nodeId = DiscoveryService.generateNodeId(settings)
+  private[this] lazy val system = ActorSystem(clusterName.value, config = actorSystemConfig)
+  private[this] lazy val cluster = Cluster(system)
+  private[this] lazy val masterProxy = system.actorOf(ClusterSingletonProxy.defaultProps(s"/user/${ActorNames.CSM}/${ActorNames.Master}", MasterRole))
+
+  private[this] var allocationService: AllocationService = null
+
+  private[this] val initialStateListeners = mutable.LinkedHashSet[InitialStateDiscoveryListener]()
+
+  override def addListener(listener: InitialStateDiscoveryListener) {
+    initialStateListeners += listener
+  }
+
+  override def removeListener(listener: InitialStateDiscoveryListener) {
+    initialStateListeners -= listener
+  }
 
   override def doStart() {
-    if (masterEligible) {
-      system.actorOf(ClusterSingletonManager.props(
-        singletonProps = Props(classOf[Master], localNode, clusterService),
-        singletonName = "eskka-master",
-        terminationMessage = PoisonPill,
-        role = Some(masterRole)
-      ), name = "singleton-manager")
+    require(allocationService != null)
+
+    if (cluster.settings.SeedNodes.size == 1) {
+      logger.warn("Highly recommended to configure more than one seed node using `eskka.seed_nodes`")
     }
 
-    import scala.concurrent.ExecutionContext.Implicits.global
-    implicit val timeout = publishTimeout
+    if (cluster.selfRoles.contains(MasterRole)) {
+      system.actorOf(ClusterSingletonManager.props(
+        singletonProps = Props(classOf[Master], localNode, clusterService, allocationService, MasterPublishTick),
+        singletonName = ActorNames.Master,
+        terminationMessage = PoisonPill,
+        role = Some(MasterRole)
+      ), name = ActorNames.CSM)
+      system.actorOf(Props(classOf[MasterFailureDetector], RevaluateFailureAfter))
+    }
 
-    val checkInit = follower ? Protocol.CheckInit
-    (if (masterEligible) {
-      // on a master node, follower won't process publsh
-      Future.firstCompletedOf(Seq(masterProxy ? Protocol.QualifiedCheckInit(localNode.id), checkInit))
-    } else {
-      checkInit
-    }).onComplete({
+    val follower = system.actorOf(Props(classOf[Follower], localNode, clusterService, masterProxy), ActorNames.Follower)
+
+    import scala.concurrent.ExecutionContext.Implicits.global
+    implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
+    Future.firstCompletedOf(Seq(masterProxy ? Protocol.QualifiedCheckInit(cluster.selfAddress), follower ? Protocol.CheckInit)).onComplete({
       case Success(transition) =>
         initialStateListeners.foreach(_.initialStateProcessed())
         logger.info("Initial state processed -- {}", transition.asInstanceOf[Object])
@@ -122,7 +114,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     val p = Promise[Any]() // FIXME Can this be accomplished more cleanly?
     cluster.subscribe(system.actorOf(Props(new Actor {
       override def receive = {
-        case ClusterEvent.MemberExited(m) if m.address == cluster.selfAddress =>
+        case ClusterEvent.MemberRemoved(m, _) if m.address == cluster.selfAddress =>
           p.success(Nil)
           context.stop(self)
       }
@@ -136,13 +128,13 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     system.awaitTermination()
   }
 
-  override def addListener(listener: InitialStateDiscoveryListener) {
-    initialStateListeners += listener
-  }
-
-  override def removeListener(listener: InitialStateDiscoveryListener) {
-    initialStateListeners -= listener
-  }
+  override lazy val localNode = new DiscoveryNode(
+    settings.get("name"),
+    nodeId,
+    transport.boundAddress().publishAddress(),
+    discoveryNodeService.buildAttributes() + ("eskka_address" -> cluster.selfAddress.toString),
+    version
+  )
 
   override def nodeDescription = clusterName.value + "/" + nodeId
 
@@ -155,16 +147,17 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   }
 
   override def setAllocationService(allocationService: AllocationService) {
-    // TODO ZenDiscovery does eager re-routing around dead nodes
+    this.allocationService = allocationService
   }
 
 }
 
 object EskkaDiscovery {
 
-  val masterRole = "seed"
-
-  val defaultPort = 10300
+  // TODO: make configurable
+  private val DefaultPort = 10300
+  private val MasterPublishTick = Duration(250, TimeUnit.MILLISECONDS)
+  private val RevaluateFailureAfter = Duration(5, TimeUnit.SECONDS)
 
   private class PublishResponseHandler(ackListener: AckListener) extends Actor {
 

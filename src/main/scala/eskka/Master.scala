@@ -3,8 +3,8 @@ package eskka
 import java.util.concurrent.TimeUnit
 
 import scala.collection.immutable
-import scala.concurrent.Promise
-import scala.concurrent.duration.Duration
+import scala.concurrent.{ Future, Promise }
+import scala.concurrent.duration.FiniteDuration
 
 import akka.actor.{ Actor, ActorLogging, Address, RootActorPath }
 import akka.cluster.{ Cluster, ClusterEvent, Member }
@@ -15,8 +15,10 @@ import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.discovery.Discovery
+import org.elasticsearch.cluster.routing.allocation.AllocationService
 
-class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends Actor with ActorLogging {
+class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocationService: AllocationService, publishTick: FiniteDuration)
+    extends Actor with ActorLogging {
 
   import Master._
 
@@ -26,10 +28,10 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
 
   private[this] val firstSubmit = Promise[Protocol.Transition]()
 
-  private[this] var discoveredNodes = Map[Address, DiscoveryNode]()
+  private[this] var discoveredNodes = Map[Address, Future[DiscoveryNode]]()
   private[this] var pendingSubmits = immutable.Queue[String]()
 
-  private[this] val drainage = context.system.scheduler.schedule(submissionDrainInterval, submissionDrainInterval, self, DrainQueuedSubmits)
+  private[this] val drainage = context.system.scheduler.schedule(publishTick, publishTick, self, DrainQueuedSubmits)
 
   override def preStart() {
     log.info("Master actor starting up on node [{}]", localNode)
@@ -38,8 +40,12 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
 
   private def discoveryNodes = {
     val builder = DiscoveryNodes.builder()
-    for (knownNode <- discoveredNodes.values) {
-      builder.put(knownNode)
+    for {
+      nodeFuture <- discoveredNodes.values
+      nodeValueTry <- nodeFuture.value
+      node <- nodeValueTry
+    } {
+      builder.put(node)
     }
     builder.localNodeId(localNode.id).masterNodeId(localNode.id).put(localNode)
     builder.build()
@@ -47,15 +53,17 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
 
   override def receive = {
 
-    case Protocol.QualifiedCheckInit(expectedRecipient) if expectedRecipient == localNode.id =>
+    case Protocol.QualifiedCheckInit(expectedRecipient) if expectedRecipient == cluster.selfAddress =>
       firstSubmit.future pipeTo sender
 
     case Protocol.Publish(clusterState, ackHandler) =>
-      log.info("publishing to {}", discoveredNodes)
       val allButMe = discoveredNodes.keys.filter(_ != cluster.selfAddress).toSeq
-      ackHandler ! allButMe.size
-      for (address <- allButMe) {
-        context.actorSelection(RootActorPath(address) / "user" / "eskka-follower") ! Protocol.Publish(clusterState, ackHandler)
+      if (!allButMe.isEmpty) {
+        log.info("publishing to {}", allButMe)
+        ackHandler ! allButMe.size
+        for (address <- allButMe) {
+          context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower) ! Protocol.Publish(clusterState, ackHandler)
+        }
       }
 
     case DrainQueuedSubmits =>
@@ -63,10 +71,16 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
         log.info("pending submits are [{}]", pendingSubmits)
         val submission = SubmitClusterStateUpdate(log, clusterService, s"eskka-master{${pendingSubmits.mkString("::")}}", {
           currentState =>
-            ClusterState.builder(currentState)
+            val newState = ClusterState.builder(currentState)
               .nodes(discoveryNodes)
               .blocks(ClusterBlocks.builder.blocks(currentState.blocks).removeGlobalBlock(Discovery.NO_MASTER_BLOCK).build)
               .build
+            if (newState.nodes.size < currentState.nodes.size) {
+              // eagerly run reroute to remove dead nodes from routing table
+              ClusterState.builder(newState).routingResult(allocationService.reroute(newState)).build
+            } else {
+              newState
+            }
         })
         if (!firstSubmit.isCompleted) {
           submission.onComplete(firstSubmit.tryComplete)
@@ -78,30 +92,29 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
       log.debug("member event: {}", me)
       me match {
         case ClusterEvent.MemberUp(m) =>
-          whoYou(m).onSuccess({
-            case node: DiscoveryNode =>
-              self ! AddNode(m.address, node)
-          })
+          implicit val timeout = WhoYouTimeout
+          discoveredNodes += (m.address -> whoYou(m)(self ! EnqueueSubmit(s"up(${m.address})")))
         case ClusterEvent.MemberExited(m) =>
-          self ! RemoveNode(m.address)
-        case ClusterEvent.MemberRemoved(m, prevStatus) =>
-          self ! RemoveNode(m.address)
+          discoveredNodes -= m.address
+          self ! EnqueueSubmit(s"exited(${m.address})")
+        case ClusterEvent.MemberRemoved(m, _) =>
+          discoveredNodes -= m.address
+          self ! EnqueueSubmit(s"removed(${m.address})")
       }
 
-    case AddNode(address, node) =>
-      discoveredNodes += (address -> node)
-      pendingSubmits = pendingSubmits enqueue s"add(${node.id})"
+    case EnqueueSubmit(info) =>
+      pendingSubmits = pendingSubmits enqueue info
 
-    case RemoveNode(address) =>
-      for (node <- discoveredNodes.get(address)) {
-        pendingSubmits = pendingSubmits enqueue s"remove(${node.id})"
-        discoveredNodes -= address
-      }
   }
 
-  private def whoYou(m: Member) = {
-    implicit val whoYouTimeout = Timeout(5, TimeUnit.SECONDS)
-    context.actorSelection(RootActorPath(m.address) / "user" / "eskka-follower") ? Protocol.WhoYou
+  private def whoYou(m: Member)(postComplete: => Unit)(implicit timeout: Timeout) = {
+    val p = Promise[DiscoveryNode]()
+    (context.actorSelection(RootActorPath(m.address) / "user" / ActorNames.Follower) ? Protocol.WhoYou).asInstanceOf[Future[DiscoveryNode]].onComplete {
+      x =>
+        p.complete(x)
+        postComplete
+    }
+    p.future
   }
 
   override def postStop() {
@@ -114,12 +127,10 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService) extends A
 
 object Master {
 
+  private val WhoYouTimeout = Timeout(5, TimeUnit.SECONDS)
+
   private case object DrainQueuedSubmits
 
-  private case class AddNode(address: Address, node: DiscoveryNode)
-
-  private case class RemoveNode(address: Address)
-
-  val submissionDrainInterval = Duration(250, TimeUnit.MILLISECONDS)
+  private case class EnqueueSubmit(info: String)
 
 }
