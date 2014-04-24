@@ -3,19 +3,22 @@ package eskka
 import java.util.concurrent.TimeUnit
 
 import scala.collection.immutable
-import scala.concurrent.{ Future, Promise }
+import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration.FiniteDuration
 
-import akka.actor.{ Actor, ActorLogging, Address, RootActorPath }
-import akka.cluster.{ Cluster, ClusterEvent, Member }
-import akka.pattern.{ ask, pipe }
+import akka.actor._
+import akka.cluster.{Cluster, ClusterEvent, Member, MemberStatus}
+import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 
-import org.elasticsearch.cluster.{ ClusterService, ClusterState }
+import org.elasticsearch.cluster.{ClusterService, ClusterState}
 import org.elasticsearch.cluster.block.ClusterBlocks
-import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
-import org.elasticsearch.discovery.Discovery
+import org.elasticsearch.cluster.metadata.MetaData
+import org.elasticsearch.cluster.node.{DiscoveryNode, DiscoveryNodes}
+import org.elasticsearch.cluster.routing.RoutingTable
 import org.elasticsearch.cluster.routing.allocation.AllocationService
+import org.elasticsearch.discovery.Discovery
+import org.elasticsearch.gateway.GatewayService
 
 class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocationService: AllocationService, publishTick: FiniteDuration)
     extends Actor with ActorLogging {
@@ -38,8 +41,7 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
     cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent])
   }
 
-  private def discoveryNodes = {
-    val builder = DiscoveryNodes.builder()
+  private def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
     for {
       nodeFuture <- discoveredNodes.values
       nodeValueTry <- nodeFuture.value
@@ -47,8 +49,7 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
     } {
       builder.put(node)
     }
-    builder.localNodeId(localNode.id).masterNodeId(localNode.id).put(localNode)
-    builder.build()
+    builder
   }
 
   override def receive = {
@@ -59,7 +60,7 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
     case Protocol.Publish(clusterState, ackHandler) =>
       val allButMe = discoveredNodes.keys.filter(_ != cluster.selfAddress).toSeq
       if (!allButMe.isEmpty) {
-        log.info("publishing to {}", allButMe)
+        log.info("publishing to [{}]", allButMe.mkString(","))
         ackHandler ! allButMe.size
         for (address <- allButMe) {
           context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower) ! Protocol.Publish(clusterState, ackHandler)
@@ -68,23 +69,42 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
 
     case DrainQueuedSubmits =>
       if (!pendingSubmits.isEmpty) {
-        log.info("pending submits are [{}]", pendingSubmits)
-        val submission = SubmitClusterStateUpdate(log, clusterService, s"eskka-master{${pendingSubmits.mkString("::")}}", {
+        val submission = SubmitClusterStateUpdate(log, clusterService, s"eskka-master${pendingSubmits.mkString("[", " :: ", "]")}", {
           currentState =>
-            val newState = ClusterState.builder(currentState)
-              .nodes(discoveryNodes)
-              .blocks(ClusterBlocks.builder.blocks(currentState.blocks).removeGlobalBlock(Discovery.NO_MASTER_BLOCK).build)
-              .build
-            if (newState.nodes.size < currentState.nodes.size) {
-              // eagerly run reroute to remove dead nodes from routing table
-              ClusterState.builder(newState).routingResult(allocationService.reroute(newState)).build
+
+            if (gotQuorumOfSeedNodes) {
+
+              val newState = ClusterState.builder(currentState)
+                .nodes(addDiscoveredNodes(DiscoveryNodes.builder.put(localNode).localNodeId(localNode.id).masterNodeId(localNode.id)))
+                .blocks(ClusterBlocks.builder.blocks(currentState.blocks).removeGlobalBlock(Discovery.NO_MASTER_BLOCK).build)
+                .build
+
+              if (newState.nodes.size < currentState.nodes.size) {
+                // eagerly run reroute to remove dead nodes from routing table
+                ClusterState.builder(newState).routingResult(allocationService.reroute(newState)).build
+              } else {
+                newState
+              }
+
             } else {
-              newState
+
+              log.warning("Don't have quorum of seed nodes, submitting init state")
+
+              ClusterState.builder(currentState)
+                .blocks(
+                  ClusterBlocks.builder.blocks(currentState.blocks)
+                    .addGlobalBlock(Discovery.NO_MASTER_BLOCK)
+                    .addGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK)
+                    .build)
+                .nodes(DiscoveryNodes.builder.put(localNode).localNodeId(localNode.id))
+                .routingTable(RoutingTable.builder)
+                .metaData(MetaData.builder)
+                .build
+
             }
         })
-        if (!firstSubmit.isCompleted) {
-          submission.onComplete(firstSubmit.tryComplete)
-        }
+
+        firstSubmit.tryCompleteWith(submission)
         pendingSubmits = immutable.Queue()
       }
 
@@ -95,11 +115,15 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
           implicit val timeout = WhoYouTimeout
           discoveredNodes += (m.address -> whoYou(m)(self ! EnqueueSubmit(s"up(${m.address})")))
         case ClusterEvent.MemberExited(m) =>
-          discoveredNodes -= m.address
-          self ! EnqueueSubmit(s"exited(${m.address})")
+          if (discoveredNodes.contains(m.address)) {
+            discoveredNodes -= m.address
+            self ! EnqueueSubmit(s"exited(${m.address})")
+          }
         case ClusterEvent.MemberRemoved(m, _) =>
-          discoveredNodes -= m.address
-          self ! EnqueueSubmit(s"removed(${m.address})")
+          if (discoveredNodes.contains(m.address)) {
+            discoveredNodes -= m.address
+            self ! EnqueueSubmit(s"removed(${m.address})")
+          }
       }
 
     case EnqueueSubmit(info) =>
@@ -109,7 +133,7 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
 
   private def whoYou(m: Member)(postComplete: => Unit)(implicit timeout: Timeout) = {
     val p = Promise[DiscoveryNode]()
-    (context.actorSelection(RootActorPath(m.address) / "user" / ActorNames.Follower) ? Protocol.WhoYou).asInstanceOf[Future[DiscoveryNode]].onComplete {
+    (context.actorSelection(RootActorPath(m.address) / "user" / ActorNames.Follower) ? Protocol.WhoYou).mapTo[DiscoveryNode].onComplete {
       x =>
         p.complete(x)
         postComplete
@@ -121,6 +145,14 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
     drainage.cancel()
     cluster.unsubscribe(self)
     log.info("Master actor stopped on node [{}]", localNode)
+  }
+
+  private def gotQuorumOfSeedNodes = {
+    val seedNodes = cluster.settings.SeedNodes
+    val cs = cluster.state
+    seedNodes.count(
+      cs.members.filter(m => m.status == MemberStatus.Up && !cs.unreachable(m)).map(_.address)
+    ) >= (seedNodes.size / 2) + 1
   }
 
 }

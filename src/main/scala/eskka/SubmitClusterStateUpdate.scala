@@ -17,17 +17,17 @@ object SubmitClusterStateUpdate {
     clusterService.submitStateUpdateTask(source, Priority.URGENT, new ProcessedClusterStateUpdateTask {
 
       override def execute(currentState: ClusterState): ClusterState = {
-        log.debug("SubmitClusterStateUpdate -- via source [{}]", source)
+        log.info("SubmitClusterStateUpdate -- via source [{}]", source)
         update(currentState)
       }
 
       override def clusterStateProcessed(source: String, oldState: ClusterState, newState: ClusterState) {
-        log.debug("SubmitClusterStateUpdate -- successfully processed new state for source [{}]", source)
+        log.info("SubmitClusterStateUpdate -- successfully processed new state for source [{}]", source)
         promise.success(Protocol.Transition(source, newState, oldState))
       }
 
       override def onFailure(source: String, t: Throwable) {
-        log.debug("SubmitClusterStateUpdate -- failed to process new state for source [{}]", source)
+        log.info("SubmitClusterStateUpdate -- failed to process new state for source [{}]", source)
         promise.failure(t)
       }
 

@@ -58,7 +58,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
       "akka.remote.netty.tcp.port" -> bindPort,
       "akka.cluster.seed-nodes" -> ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://${clusterName.value}@$hostPort")),
       "akka.cluster.roles" -> (if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()),
-      s"akka.cluster.min-nr-of-members" -> new Integer(quorumRequirement(seedNodes.size))
+      "akka.cluster.min-nr-of-members" -> new Integer((seedNodes.size / 2) + 1)
     )).withFallback(ConfigFactory.load())
   }
 
@@ -93,7 +93,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
         terminationMessage = PoisonPill,
         role = Some(MasterRole)
       ), name = ActorNames.CSM)
-      system.actorOf(Props(classOf[MasterFailureDetector], RevaluateFailureAfter))
+      system.actorOf(Props(classOf[PartitionResolver], RevaluateFailureInterval), "partition-resolver")
     }
 
     val follower = system.actorOf(Props(classOf[Follower], localNode, clusterService, masterProxy), ActorNames.Follower)
@@ -111,7 +111,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   override def doStop() {
     logger.info("Leaving the cluster")
-    val p = Promise[Any]() // FIXME Can this be accomplished more cleanly?
+    val p = Promise[Any]()
     cluster.subscribe(system.actorOf(Props(new Actor {
       override def receive = {
         case ClusterEvent.MemberRemoved(m, _) if m.address == cluster.selfAddress =>
@@ -140,7 +140,8 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   override def publish(clusterState: ClusterState, ackListener: AckListener) {
     logger.info("Publishing new clusterState [{}]", clusterState)
-    masterProxy ! Protocol.Publish(ClusterState.Builder.toBytes(clusterState), system.actorOf(Props(classOf[PublishResponseHandler], ackListener)))
+    masterProxy ! Protocol.Publish(ClusterState.Builder.toBytes(clusterState),
+      system.actorOf(Props(classOf[PublishResponseHandler], ackListener, PublishResponseHandlerTimeout)))
   }
 
   override def setNodeService(nodeService: NodeService) {
@@ -157,13 +158,14 @@ object EskkaDiscovery {
   // TODO: make configurable
   private val DefaultPort = 10300
   private val MasterPublishTick = Duration(250, TimeUnit.MILLISECONDS)
-  private val RevaluateFailureAfter = Duration(5, TimeUnit.SECONDS)
+  private val RevaluateFailureInterval = Duration(5, TimeUnit.SECONDS)
+  private val PublishResponseHandlerTimeout = Timeout(60, TimeUnit.SECONDS)
 
-  private class PublishResponseHandler(ackListener: AckListener) extends Actor {
+  private class PublishResponseHandler(ackListener: AckListener, timeout: Timeout) extends Actor {
 
     import context.dispatcher
 
-    context.system.scheduler.scheduleOnce(Duration(60, TimeUnit.SECONDS), self, PoisonPill)
+    context.system.scheduler.scheduleOnce(timeout.duration, self, PoisonPill)
 
     var expectedAcks = 0
     var acksReceived = 0

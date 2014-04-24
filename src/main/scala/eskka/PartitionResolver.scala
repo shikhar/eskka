@@ -3,13 +3,13 @@ package eskka
 import scala.collection.immutable.SortedSet
 import scala.concurrent.duration.FiniteDuration
 
-import akka.actor.{ Actor, ActorLogging, Address }
-import akka.cluster.{ Cluster, ClusterEvent, Member }
+import akka.actor.{Actor, ActorLogging, Address}
+import akka.cluster.{Cluster, ClusterEvent, Member}
 import akka.cluster.ClusterEvent.CurrentClusterState
 
-class MasterFailureDetector(revaluateAfter: FiniteDuration) extends Actor with ActorLogging {
+class PartitionResolver(revaluateInterval: FiniteDuration) extends Actor with ActorLogging {
 
-  import eskka.MasterFailureDetector._
+  import PartitionResolver._
 
   import context.dispatcher
 
@@ -30,26 +30,26 @@ class MasterFailureDetector(revaluateAfter: FiniteDuration) extends Actor with A
         if (cs.unreachable.contains(m)) {
           if (seenByQuorumOfSeedNodes(cluster.settings.SeedNodes, cs)) {
             if (isMaster(cs, m.address)) {
-              log.info("Unreachable member [{}] is master, and this has has been observed by quorum of seed nodes -- downing!", m)
+              log.info("[{}] is master, and its unreachability has has been observed by quorum of master-eligible nodes -- downing!", m)
               cluster.down(m.address)
             } else {
               scheduleReval(m, "not master")
             }
           } else {
-            scheduleReval(m, "not been observed by a quorum of seed nodes, we may be on a minority partition")
+            scheduleReval(m, "not been observed by a quorum of master-eligible nodes, we may be on a minority partition")
           }
         } else {
-          log.info("Member [{}] is reachable now", m)
+          log.info("[{}] is reachable now", m)
         }
       } else {
-        log.info("Unreachable member [{}] is no longer part of the cluster", m)
+        log.info("[{}] is no longer part of the cluster", m)
       }
 
   }
 
   private def scheduleReval(m: Member, reason: String) {
-    log.info("Scheduling revaluation of unreachable member [{}] after [{}] -- reason [{}]", m, revaluateAfter, reason)
-    context.system.scheduler.scheduleOnce(revaluateAfter, self, Revaluate(m))
+    log.info("Scheduling revaluation of unreachable [{}] after [{}] -- reason [{}]", m, revaluateInterval, reason)
+    context.system.scheduler.scheduleOnce(revaluateInterval, self, Revaluate(m))
   }
 
   override def postStop() {
@@ -58,7 +58,7 @@ class MasterFailureDetector(revaluateAfter: FiniteDuration) extends Actor with A
 
 }
 
-object MasterFailureDetector {
+object PartitionResolver {
 
   private val MemberAgeOrdering = Ordering.fromLessThan[Member](_.isOlderThan(_))
 
@@ -71,6 +71,6 @@ object MasterFailureDetector {
     masterEligibleMembersByAge(cs).headOption.exists(_.address == address)
 
   private def seenByQuorumOfSeedNodes(seedNodes: Seq[Address], cs: CurrentClusterState) =
-    seedNodes.count(cs.seenBy.contains) >= quorumRequirement(seedNodes.size)
+    seedNodes.count(cs.seenBy.contains) >= (seedNodes.size / 2) + 1
 
 }
