@@ -32,9 +32,9 @@ object Build extends sbt.Build {
     scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
   ) ++ packTask ++ com.typesafe.sbt.SbtScalariform.scalariformSettings
 
-  def packTask = pack <<= (update, packageBin in Compile, target, version) map {
-    (updateReport, jar, out, v) =>
-      val archive = out / s"eskka-$v.zip"
+  def packTask = pack <<= (name, update, packageBin in Compile, target, version) map {
+    (name, updateReport, jar, out, v) =>
+      val archive = out / s"$name-$v.zip"
       IO.zip(updateReport.allFiles.map(f => f -> f.getName) ++ Seq(jar -> jar.getName), archive)
       archive
   }
