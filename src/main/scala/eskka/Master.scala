@@ -3,18 +3,19 @@ package eskka
 import java.util.concurrent.TimeUnit
 
 import scala.collection.immutable
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{ Future, Promise }
 import scala.concurrent.duration.FiniteDuration
 
 import akka.actor._
-import akka.cluster.{Cluster, ClusterEvent, Member, MemberStatus}
-import akka.pattern.{ask, pipe}
+import akka.cluster.{ Cluster, ClusterEvent, Member, MemberStatus }
+import akka.cluster.ClusterEvent.ReachabilityEvent
+import akka.pattern.{ ask, pipe }
 import akka.util.Timeout
 
-import org.elasticsearch.cluster.{ClusterService, ClusterState}
+import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.metadata.MetaData
-import org.elasticsearch.cluster.node.{DiscoveryNode, DiscoveryNodes}
+import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.cluster.routing.RoutingTable
 import org.elasticsearch.cluster.routing.allocation.AllocationService
 import org.elasticsearch.discovery.Discovery
@@ -38,7 +39,7 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
 
   override def preStart() {
     log.info("Master actor starting up on node [{}]", localNode)
-    cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent])
+    cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.ReachabilityEvent], classOf[ClusterEvent.MemberEvent])
   }
 
   private def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
@@ -50,6 +51,15 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
       builder.put(node)
     }
     builder
+  }
+
+  private def gotQuorumOfSeedNodes = {
+    val seedNodes = cluster.settings.SeedNodes
+    val cs = cluster.state
+    seedNodes.count(
+      // only take into account Up and reachable members
+      cs.members.filter(m => m.status == MemberStatus.Up && !cs.unreachable(m)).map(_.address)
+    ) >= (seedNodes.size / 2) + 1
   }
 
   override def receive = {
@@ -126,6 +136,18 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
           }
       }
 
+    case re: ReachabilityEvent =>
+      log.debug("reachability event: {}", re)
+      re match {
+        case ClusterEvent.ReachableMember(m) =>
+          if (cluster.settings.SeedNodes.contains(m.address)) {
+            // this is so that we revaluate gotQuorumOfSeedNodes, where we aggressively take unreachability into account
+            self ! EnqueueSubmit(s"seed_reachable${m.address}")
+          }
+
+        case ClusterEvent.UnreachableMember(_) =>
+      }
+
     case EnqueueSubmit(info) =>
       pendingSubmits = pendingSubmits enqueue info
 
@@ -145,14 +167,6 @@ class Master(localNode: DiscoveryNode, clusterService: ClusterService, allocatio
     drainage.cancel()
     cluster.unsubscribe(self)
     log.info("Master actor stopped on node [{}]", localNode)
-  }
-
-  private def gotQuorumOfSeedNodes = {
-    val seedNodes = cluster.settings.SeedNodes
-    val cs = cluster.state
-    seedNodes.count(
-      cs.members.filter(m => m.status == MemberStatus.Up && !cs.unreachable(m)).map(_.address)
-    ) >= (seedNodes.size / 2) + 1
   }
 
 }

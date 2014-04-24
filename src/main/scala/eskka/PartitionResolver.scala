@@ -3,8 +3,8 @@ package eskka
 import scala.collection.immutable.SortedSet
 import scala.concurrent.duration.FiniteDuration
 
-import akka.actor.{Actor, ActorLogging, Address}
-import akka.cluster.{Cluster, ClusterEvent, Member}
+import akka.actor.{ Actor, ActorLogging, Address }
+import akka.cluster.{ Cluster, ClusterEvent, Member }
 import akka.cluster.ClusterEvent.CurrentClusterState
 
 class PartitionResolver(revaluateInterval: FiniteDuration) extends Actor with ActorLogging {
