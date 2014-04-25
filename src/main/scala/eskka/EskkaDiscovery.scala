@@ -100,13 +100,13 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
     import scala.concurrent.ExecutionContext.Implicits.global
     implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
-    Future.firstCompletedOf(Seq(masterProxy ? Protocol.QualifiedCheckInit(cluster.selfAddress), follower ? Protocol.CheckInit)).onComplete({
-      case Success(transition) =>
+    Future.firstCompletedOf(Seq(masterProxy ? Protocol.QualifiedCheckInit(cluster.selfAddress), follower ? Protocol.CheckInit)) onComplete {
+      case Success(info) =>
         initialStateListeners.foreach(_.initialStateProcessed())
-        logger.info("Initial state processed -- {}", transition.asInstanceOf[Object])
+        logger.info("Initial state processed -- {}", info.asInstanceOf[Object])
       case Failure(e) =>
         logger.error("Initial state processing failed!", e)
-    })
+    }
   }
 
   override def doStop() {
@@ -140,8 +140,8 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   override def publish(clusterState: ClusterState, ackListener: AckListener) {
     logger.info("Publishing new clusterState [{}]", clusterState)
-    masterProxy ! Protocol.Publish(ClusterState.Builder.toBytes(clusterState),
-      system.actorOf(Props(classOf[PublishResponseHandler], ackListener, PublishResponseHandlerTimeout)))
+    val publishResponseHandler = system.actorOf(Props(classOf[PublishResponseHandler], ackListener, PublishResponseHandlerTimeout))
+    masterProxy.tell(Protocol.Publish(clusterState.version, ClusterState.Builder.toBytes(clusterState)), publishResponseHandler)
   }
 
   override def setNodeService(nodeService: NodeService) {
@@ -157,7 +157,7 @@ object EskkaDiscovery {
 
   // TODO: make configurable
   private val DefaultPort = 10300
-  private val MasterPublishTick = Duration(250, TimeUnit.MILLISECONDS)
+  private val MasterPublishTick = Duration(1, TimeUnit.SECONDS)
   private val RevaluateFailureInterval = Duration(5, TimeUnit.SECONDS)
   private val PublishResponseHandlerTimeout = Timeout(60, TimeUnit.SECONDS)
 

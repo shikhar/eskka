@@ -19,10 +19,10 @@ class Follower(localNode: DiscoveryNode, clusterService: ClusterService, masterP
 
   import context.dispatcher
 
-  private[this] val firstSubmit = Promise[Protocol.Transition]()
+  private[this] val firstSubmit = Promise[SubmitClusterStateUpdate.Transition]()
 
   private def submitUpdateFromMaster(updatedState: ClusterState) =
-    SubmitClusterStateUpdate(log, clusterService, "eskka-follower", {
+    SubmitClusterStateUpdate(clusterService, "eskka-follower", {
       currentState =>
         val builder = ClusterState.builder(updatedState)
 
@@ -59,18 +59,19 @@ class Follower(localNode: DiscoveryNode, clusterService: ClusterService, masterP
     case Protocol.WhoYou =>
       sender ! localNode
 
-    case Protocol.Publish(clusterStateBytes, ackHandler) =>
-      val clusterState = ClusterState.Builder.fromBytes(clusterStateBytes, localNode)
-      require(clusterState.nodes.masterNodeId != localNode.id)
-      log.info("Submitting updated cluster state version [{}]", clusterState.version)
+    case Protocol.Publish(version, serializedClusterState) =>
+      val clusterState = ClusterState.Builder.fromBytes(serializedClusterState, localNode)
+      require(version == clusterState.version, s"Deserialized cluster state version mismatch, expected=$version, have=${clusterState.version}")
+      require(clusterState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
+      log.info("Submitting updated cluster state version [{}]", version)
       submitUpdateFromMaster(clusterState).onComplete({
         res =>
           firstSubmit.tryComplete(res)
           res match {
             case Success(transition) =>
-              ackHandler ! Protocol.PublishAck(localNode, None)
+              sender ! Protocol.PublishAck(localNode, None)
             case Failure(error) =>
-              ackHandler ! Protocol.PublishAck(localNode, Some(error))
+              sender ! Protocol.PublishAck(localNode, Some(error))
           }
       })
 
