@@ -30,13 +30,13 @@ class PartitionResolver(revaluateInterval: FiniteDuration) extends Actor with Ac
         if (cs.unreachable.contains(m)) {
           if (seenByQuorumOfSeedNodes(cluster.settings.SeedNodes, cs)) {
             if (isMaster(cs, m.address)) {
-              log.info("[{}] is master, and its unreachability has has been observed by quorum of master-eligible nodes -- downing!", m)
+              log.info("[{}] is master, and its unreachability has has been observed by quorum of seed nodes -- downing!", m)
               cluster.down(m.address)
             } else {
               scheduleReval(m, "not master")
             }
           } else {
-            scheduleReval(m, "not been observed by a quorum of master-eligible nodes, we may be on a minority partition")
+            scheduleReval(m, "not been observed by a quorum of seed nodes, we may be on a minority partition")
           }
         } else {
           log.info("[{}] is reachable now", m)
