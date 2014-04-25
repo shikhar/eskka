@@ -42,28 +42,9 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   import EskkaDiscovery._
 
-  private def actorSystemConfig = {
-    val nodeSettings = settings.getByPrefix("node.")
-    val isClientNode = nodeSettings.getAsBoolean("client", false)
-    val isMasterNode = nodeSettings.getAsBoolean("master", !isClientNode)
-
-    val eskkaSettings = settings.getByPrefix("discovery.eskka.")
-    val bindHost = networkService.resolveBindHostAddress(eskkaSettings.get("host", "_non_loopback_")).getHostName
-    val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
-    val publishHost = networkService.resolvePublishHostAddress(eskkaSettings.get("host", "_local_")).getHostName
-    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(publishHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
-
-    ConfigFactory.parseMap(Map(
-      "akka.remote.netty.tcp.hostname" -> bindHost,
-      "akka.remote.netty.tcp.port" -> bindPort,
-      "akka.cluster.seed-nodes" -> ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://${clusterName.value}@$hostPort")),
-      "akka.cluster.roles" -> (if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()),
-      "akka.cluster.min-nr-of-members" -> new Integer((seedNodes.size / 2) + 1)
-    )).withFallback(ConfigFactory.load())
-  }
-
   private[this] lazy val nodeId = DiscoveryService.generateNodeId(settings)
-  private[this] lazy val system = ActorSystem(clusterName.value, config = actorSystemConfig)
+
+  private[this] lazy val system = makeActorSystem(clusterName.value, settings, networkService)
   private[this] lazy val cluster = Cluster(system)
   private[this] lazy val masterProxy = system.actorOf(ClusterSingletonProxy.defaultProps(s"/user/${ActorNames.CSM}/${ActorNames.Master}", MasterRole))
 
@@ -156,7 +137,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 object EskkaDiscovery {
 
   // TODO: make configurable
-  private val DefaultPort = 10300
+  private val DefaultPort = 9400
   private val MasterPublishTick = Duration(1, TimeUnit.SECONDS)
   private val RevaluateFailureInterval = Duration(5, TimeUnit.SECONDS)
   private val PublishResponseHandlerTimeout = Timeout(60, TimeUnit.SECONDS)
@@ -189,5 +170,27 @@ object EskkaDiscovery {
 
   }
 
-}
+  private def makeActorSystem(name: String, settings: Settings, networkService: NetworkService) = {
+    val nodeSettings = settings.getByPrefix("node.")
+    val isClientNode = nodeSettings.getAsBoolean("client", false)
+    val isMasterNode = nodeSettings.getAsBoolean("master", !isClientNode)
 
+    val eskkaSettings = settings.getByPrefix("discovery.eskka.")
+    val bindHost = networkService.resolveBindHostAddress(eskkaSettings.get("host", "_non_loopback_")).getHostName
+    val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
+    val publishHost = networkService.resolvePublishHostAddress(eskkaSettings.get("host", "_local_")).getHostName
+    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(publishHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
+    val seedNodeAddresses = ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort"))
+    val roles = if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()
+    val minNrOfMembers = new Integer((seedNodes.size / 2) + 1)
+
+    ActorSystem(name, config = ConfigFactory.parseMap(Map(
+      "akka.remote.netty.tcp.hostname" -> bindHost,
+      "akka.remote.netty.tcp.port" -> bindPort,
+      "akka.cluster.seed-nodes" -> seedNodeAddresses,
+      "akka.cluster.roles" -> roles,
+      "akka.cluster.min-nr-of-members" -> minNrOfMembers
+    )).withFallback(ConfigFactory.load()))
+  }
+
+}
