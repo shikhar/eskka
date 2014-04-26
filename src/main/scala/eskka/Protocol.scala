@@ -6,9 +6,7 @@ import org.elasticsearch.cluster.node.DiscoveryNode
 
 object Protocol {
 
-  case object CheckInit
-
-  case class QualifiedCheckInit(expectedRecipient: Address)
+  case class CheckInit(expectedRecipient: Address)
 
   case class Publish(version: Long, serializedClusterState: Array[Byte])
 

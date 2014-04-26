@@ -67,21 +67,23 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
       logger.warn("Highly recommended to configure more than one seed node using `eskka.seed_nodes`")
     }
 
+    val votingMembers = VotingMembers(cluster.settings.SeedNodes.toSet)
+
     if (cluster.selfRoles.contains(MasterRole)) {
       system.actorOf(ClusterSingletonManager.props(
-        singletonProps = Props(classOf[Master], localNode, clusterService, allocationService, MasterPublishTick),
+        singletonProps = Master.props(localNode, votingMembers, clusterService, allocationService, MasterDiscoveryDrainInterval),
         singletonName = ActorNames.Master,
         terminationMessage = PoisonPill,
         role = Some(MasterRole)
       ), name = ActorNames.CSM)
-      system.actorOf(Props(classOf[PartitionResolver], RevaluateFailureInterval), "partition-resolver")
+      system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, PartitionMonitorNodeTimeout), "partition-resolver")
     }
 
-    val follower = system.actorOf(Props(classOf[Follower], localNode, clusterService, masterProxy), ActorNames.Follower)
+    val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService), ActorNames.Follower)
 
     import scala.concurrent.ExecutionContext.Implicits.global
     implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
-    Future.firstCompletedOf(Seq(masterProxy ? Protocol.QualifiedCheckInit(cluster.selfAddress), follower ? Protocol.CheckInit)) onComplete {
+    Future.firstCompletedOf(Seq(masterProxy, follower).map(_ ? Protocol.CheckInit(cluster.selfAddress))) onComplete {
       case Success(info) =>
         initialStateListeners.foreach(_.initialStateProcessed())
         logger.info("Initial state processed -- {}", info.asInstanceOf[Object])
@@ -138,8 +140,8 @@ object EskkaDiscovery {
 
   // TODO: make configurable
   private val DefaultPort = 9400
-  private val MasterPublishTick = Duration(1, TimeUnit.SECONDS)
-  private val RevaluateFailureInterval = Duration(5, TimeUnit.SECONDS)
+  private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
+  private val PartitionMonitorNodeTimeout = Timeout(5, TimeUnit.SECONDS)
   private val PublishResponseHandlerTimeout = Timeout(60, TimeUnit.SECONDS)
 
   private class PublishResponseHandler(ackListener: AckListener, timeout: Timeout) extends Actor {
