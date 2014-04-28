@@ -76,6 +76,9 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
         terminationMessage = PoisonPill,
         role = Some(MasterRole)
       ), name = ActorNames.CSM)
+    }
+
+    if (votingMembers.addresses(cluster.selfAddress)) {
       system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, PartitionMonitorNodeTimeout), "partition-resolver")
     }
 
