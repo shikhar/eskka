@@ -19,7 +19,9 @@ object Build extends sbt.Build {
 
         "com.typesafe.akka" %% "akka-actor" % v.akka,
         "com.typesafe.akka" %% "akka-contrib" % v.akka,
-        "com.typesafe.akka" %% "akka-cluster" % v.akka
+        "com.typesafe.akka" %% "akka-cluster" % v.akka,
+
+        "com.typesafe.akka" %% "akka-multi-node-testkit" % v.akka % "test"
       )
     )
 
