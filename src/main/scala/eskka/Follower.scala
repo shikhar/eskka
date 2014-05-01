@@ -1,12 +1,15 @@
 package eskka
 
+import java.util.concurrent.TimeUnit
+
+import scala.Some
 import scala.collection.JavaConversions._
 import scala.concurrent.Promise
+import scala.concurrent.duration.Duration
 import scala.util.{ Failure, Success }
 
-import akka.actor.{ Actor, ActorLogging, Props }
+import akka.actor._
 import akka.cluster.Cluster
-import akka.cluster.ClusterEvent.ClusterDomainEvent
 import akka.pattern.pipe
 
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
@@ -19,15 +22,18 @@ import org.elasticsearch.gateway.GatewayService
 
 object Follower {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
-    Props(classOf[Follower], localNode, votingMembers, clusterService)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, master: ActorRef) =
+    Props(classOf[Follower], localNode, votingMembers, clusterService, master)
+
+  private val QuorumCheckInterval = Duration(250, TimeUnit.MILLISECONDS)
+
+  private case object QuorumCheck
 
 }
 
-class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService)
-    extends Actor with ActorLogging {
+class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, master: ActorRef) extends Actor with ActorLogging {
 
-  log.info("Follower is up on node [{}]", localNode)
+  import Follower._
 
   import context.dispatcher
 
@@ -35,14 +41,13 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
   private[this] val firstSubmit = Promise[SubmitClusterStateUpdate.Transition]()
 
-  private[this] var quorumAvailability: Option[QuorumAvailability] = None
+  private[this] val quorumCheckTask = context.system.scheduler.schedule(QuorumCheckInterval, QuorumCheckInterval, self, QuorumCheck)
 
-  override def preStart() {
-    cluster.subscribe(self, classOf[ClusterDomainEvent])
-  }
+  private[this] var quorumCheckLastResult = true
+  private[this] var pendingPublishRequest = false
 
   override def postStop() {
-    cluster.unsubscribe(self)
+    quorumCheckTask.cancel()
   }
 
   override def receive = {
@@ -51,32 +56,58 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
       firstSubmit.future pipeTo sender
 
     case Protocol.WhoYou =>
-      sender ! localNode
+      sender ! Protocol.IAm(self, localNode)
 
-    case Protocol.Publish(version, serializedClusterState) if quorumAvailability.contains(QuorumAvailable) =>
+    case Protocol.LocalMasterPublish =>
+      pendingPublishRequest = false
+
+    case Protocol.Publish(version, serializedClusterState) =>
       val updatedState = ClusterState.Builder.fromBytes(serializedClusterState, localNode)
       require(version == updatedState.version, s"Deserialized cluster state version mismatch, expected=$version, have=${updatedState.version}")
       require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
 
-      log.info("submitting updated cluster state version [{}]", version)
-      SubmitClusterStateUpdate(clusterService, "follower{master-publish}", updateClusterState(updatedState)) onComplete {
-        res =>
-          firstSubmit.tryComplete(res)
-          res match {
-            case Success(transition) =>
-              sender ! Protocol.PublishAck(localNode, None)
-            case Failure(error) =>
-              sender ! Protocol.PublishAck(localNode, Some(error))
-          }
+      if (quorumCheckLastResult) {
+        log.info("submitting publish of cluster state version {}...", version)
+        SubmitClusterStateUpdate(clusterService, "follower{master-publish}", updateClusterState(updatedState)) onComplete {
+          res =>
+            firstSubmit.tryComplete(res)
+            res match {
+              case Success(transition) =>
+                log.info("successfully submitted cluster state version {}", version)
+                sender ! Protocol.PublishAck(localNode, None)
+              case Failure(error) =>
+                log.error(error, "failed to submit cluster state version {}", version)
+                sender ! Protocol.PublishAck(localNode, Some(error))
+            }
+        }
+      } else {
+        log.warning("discarding publish of cluster state version {} as quorum unavailable", version)
+        sender ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
       }
 
-    case e: ClusterDomainEvent =>
-      val prevQuorumAvailability = quorumAvailability
-      quorumAvailability = Some(votingMembers.quorumAvailability(cluster.state))
-      if (prevQuorumAvailability != quorumAvailability && quorumAvailability.contains(QuorumUnavailable)) {
-        log.warning("submitting cleared cluster state due to loss of quorum ({})", e)
-        SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", clearClusterState)
+      pendingPublishRequest = false
+
+    case QuorumCheck =>
+      val currentResult = votingMembers.quorumAvailable(cluster.state)
+
+      if (currentResult != quorumCheckLastResult) {
+        if (currentResult) {
+          pendingPublishRequest = true
+        } else {
+          SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", clearClusterState) onComplete {
+            case Success(_) => log.info("quorum loss -- cleared cluster state")
+            case Failure(e) => log.error(e, "quorum loss -- failed to clear cluster state")
+          }
+          pendingPublishRequest = false
+        }
       }
+
+      if (pendingPublishRequest) {
+        log.debug("quorum available, requesting publish from master")
+        master ! Protocol.PleasePublishDiscoveryState(cluster.selfAddress)
+      }
+
+      quorumCheckLastResult = currentResult
 
   }
 

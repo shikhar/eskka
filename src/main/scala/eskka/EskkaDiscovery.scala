@@ -69,29 +69,35 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
     val votingMembers = VotingMembers(cluster.settings.SeedNodes.toSet)
 
-    if (cluster.selfRoles.contains(MasterRole)) {
-      system.actorOf(ClusterSingletonManager.props(
-        singletonProps = Master.props(localNode, votingMembers, clusterService, allocationService, MasterDiscoveryDrainInterval),
-        singletonName = ActorNames.Master,
-        terminationMessage = PoisonPill,
-        role = Some(MasterRole)
-      ), name = ActorNames.CSM)
-    }
+    cluster.registerOnMemberUp {
 
-    if (votingMembers.addresses(cluster.selfAddress)) {
-      system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, PartitionMonitorNodeTimeout), "partition-resolver")
-    }
+      if (cluster.selfRoles.contains(MasterRole)) {
+        system.actorOf(ClusterSingletonManager.props(
+          singletonProps = Master.props(localNode, votingMembers, clusterService, allocationService),
+          singletonName = ActorNames.Master,
+          terminationMessage = PoisonPill,
+          role = Some(MasterRole)
+        ), name = ActorNames.CSM)
+      }
 
-    val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService), ActorNames.Follower)
+      system.actorOf(Pinger.props, ActorNames.Pinger)
 
-    import scala.concurrent.ExecutionContext.Implicits.global
-    implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
-    Future.firstCompletedOf(Seq(masterProxy, follower).map(_ ? Protocol.CheckInit(cluster.selfAddress))) onComplete {
-      case Success(info) =>
-        initialStateListeners.foreach(_.initialStateProcessed())
-        logger.info("Initial state processed -- {}", info.asInstanceOf[Object])
-      case Failure(e) =>
-        logger.error("Initial state processing failed!", e)
+      if (votingMembers.addresses(cluster.selfAddress)) {
+        system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, PartitionMonitorNodeEvalDelay, PartitionMonitorPingTimeout), "partition-monitor")
+      }
+
+      val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService, masterProxy), ActorNames.Follower)
+
+      import scala.concurrent.ExecutionContext.Implicits.global
+      implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
+      Future.firstCompletedOf(Seq(masterProxy, follower).map(_ ? Protocol.CheckInit(cluster.selfAddress))) onComplete {
+        case Success(info) =>
+          initialStateListeners.foreach(_.initialStateProcessed())
+          logger.info("Initial state processed -- {}", info.asInstanceOf[Object])
+        case Failure(e) =>
+          logger.error("Initial state processing failed!", e)
+      }
+
     }
   }
 
@@ -143,8 +149,8 @@ object EskkaDiscovery {
 
   // TODO: make configurable
   private val DefaultPort = 9400
-  private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
-  private val PartitionMonitorNodeTimeout = Timeout(5, TimeUnit.SECONDS)
+  private val PartitionMonitorNodeEvalDelay = Duration(5, TimeUnit.SECONDS)
+  private val PartitionMonitorPingTimeout = Duration(3, TimeUnit.SECONDS)
   private val PublishResponseHandlerTimeout = Timeout(60, TimeUnit.SECONDS)
 
   private class PublishResponseHandler(ackListener: AckListener, timeout: Timeout) extends Actor {

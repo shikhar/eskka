@@ -6,6 +6,7 @@ package object eskka {
     val CSM = "csm"
     val Master = "master"
     val Follower = "follower"
+    val Pinger = "pinger"
   }
 
 }

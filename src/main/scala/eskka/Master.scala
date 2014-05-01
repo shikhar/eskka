@@ -4,15 +4,14 @@ import java.util.concurrent.TimeUnit
 
 import scala.collection.immutable
 import scala.concurrent.{ Future, Promise }
-import scala.concurrent.duration.FiniteDuration
-import scala.util.Success
+import scala.concurrent.duration.Duration
+import scala.util.{ Failure, Success }
 
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
-import akka.pattern.pipe
+import akka.pattern.{ ask, pipe }
 import akka.util.Timeout
 
-import org.elasticsearch.ElasticsearchException
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
@@ -21,35 +20,21 @@ import org.elasticsearch.discovery.Discovery
 
 object Master {
 
-  private val WhoYouTimeout = Timeout(1, TimeUnit.SECONDS)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, allocationService: AllocationService) =
+    Props(classOf[Master], localNode, votingMembers, clusterService, allocationService)
 
-  private case object DrainQueuedDiscoveryChanges
+  private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
+  private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
 
-  private case class EnqueueSubmit(info: String)
+  private case object DrainQueuedDiscoverySubmits
 
-  private class WhoYouResponseHandler(promise: Promise[(ActorRef, DiscoveryNode)], timeout: Timeout) extends Actor {
+  private case class EnqueueDiscoverySubmit(info: String)
 
-    import context.dispatcher
-
-    context.system.scheduler.scheduleOnce(timeout.duration, self, PoisonPill)
-
-    override def receive = {
-      case node: DiscoveryNode =>
-        promise.success((sender(), node))
-        context.stop(self)
-    }
-  }
-
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers,
-    clusterService: ClusterService, allocationService: AllocationService,
-    drainageInterval: FiniteDuration) =
-    Props(classOf[Master], localNode, votingMembers, clusterService, allocationService, drainageInterval)
+  private case class RetryAddFollower(node: Address)
 
 }
 
-class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
-  clusterService: ClusterService, allocationService: AllocationService,
-  drainageInterval: FiniteDuration)
+class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, allocationService: AllocationService)
     extends Actor with ActorLogging {
 
   import Master._
@@ -58,13 +43,13 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
 
   private[this] val cluster = Cluster(context.system)
 
-  private[this] val drainage = context.system.scheduler.schedule(drainageInterval, drainageInterval, self, DrainQueuedDiscoveryChanges)
+  private[this] val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
 
   private[this] val firstSubmit = Promise[SubmitClusterStateUpdate.Transition]()
 
-  private[this] var discoveredNodes = Map[Address, Future[(ActorRef, DiscoveryNode)]]()
+  private[this] var discoveredNodes = Map[Address, Future[Protocol.IAm]]()
 
-  private[this] var pendingDiscoveryChanges = immutable.Queue[String]()
+  private[this] var pendingDiscoverySubmits = immutable.Queue[String]()
 
   override def preStart() {
     log.info("Master actor starting up on node [{}]", localNode)
@@ -83,69 +68,99 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
       firstSubmit.future pipeTo sender
 
     case publishMsg: Protocol.Publish =>
-      if (votingMembers.quorumAvailability(cluster.state) == QuorumAvailable) {
-        val remoteFollowers = discoveredNodes.values.flatMap(_.value.collect {
-          case Success((ref, node)) if node.id != localNode.id => ref
-        })
-        log.info("publishing cluster state version [{}] to [{}]", publishMsg.version, remoteFollowers.mkString(","))
-        remoteFollowers.foreach(_ forward publishMsg)
+      if (votingMembers.quorumAvailable(cluster.state)) {
+        localFollower.foreach(_ ! Protocol.LocalMasterPublish)
+
+        val currentRemoteFollowers = remoteFollowers
+        if (!currentRemoteFollowers.isEmpty) {
+          log.info("publishing cluster state version [{}] to [{}]", publishMsg.version, currentRemoteFollowers.mkString(","))
+          currentRemoteFollowers.foreach(_ forward publishMsg)
+        }
+
+        sender ! currentRemoteFollowers.size
       } else {
         log.warning("don't have quorum so won't forward publish message for cluster state version [{}]", publishMsg.version)
-        sender ! Protocol.PublishAck(localNode, throw new ElasticsearchException("Don't have quorum"))
+        sender ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
       }
 
-    case DrainQueuedDiscoveryChanges =>
-      if (!pendingDiscoveryChanges.isEmpty) {
-        val summary = pendingDiscoveryChanges.mkString("[", " :: ", "]")
-        if (votingMembers.quorumAvailability(cluster.state) == QuorumAvailable) {
+    case DrainQueuedDiscoverySubmits =>
+      if (!pendingDiscoverySubmits.isEmpty) {
+        val summary = pendingDiscoverySubmits.mkString("[", " :: ", "]")
+        if (votingMembers.quorumAvailable(cluster.state)) {
           val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master$summary", discoveryState)
+          submission onComplete {
+            case Success(_) => log.info("drain discovery submits -- successful -- {}", summary)
+            case Failure(e) => log.error(e, "drain discovery submits -- failure -- {}", summary)
+          }
           firstSubmit.tryCompleteWith(submission)
         } else {
           log.warning("don't have quorum to submit pending discovery changes {}", summary)
         }
-        pendingDiscoveryChanges = immutable.Queue()
+        pendingDiscoverySubmits = immutable.Queue()
       }
 
-    case me: ClusterEvent.MemberEvent => me match {
+    case mEvent: ClusterEvent.MemberEvent => mEvent match {
 
       case ClusterEvent.MemberUp(m) =>
-        val p = Promise[(ActorRef, DiscoveryNode)]()
-        val whoYouResponseHandler = context.actorOf(Props(classOf[WhoYouResponseHandler], p, WhoYouTimeout))
-        context.actorSelection(RootActorPath(m.address) / "user" / ActorNames.Follower).tell(Protocol.WhoYou, whoYouResponseHandler)
-        discoveredNodes += (m.address -> p.future)
-        p.future onSuccess {
-          case _ => self ! EnqueueSubmit(s"up(${m.address})")
-        }
+        addFollower(m.address)
 
       case ClusterEvent.MemberExited(m) =>
         if (discoveredNodes.contains(m.address)) {
           discoveredNodes -= m.address
-          self ! EnqueueSubmit(s"exited(${m.address})")
+          self ! EnqueueDiscoverySubmit(s"exited(${m.address})")
         }
 
       case ClusterEvent.MemberRemoved(m, _) =>
         if (discoveredNodes.contains(m.address)) {
           discoveredNodes -= m.address
-          self ! EnqueueSubmit(s"removed(${m.address})")
+          self ! EnqueueDiscoverySubmit(s"removed(${m.address})")
         }
 
     }
 
-    case re: ClusterEvent.ReachabilityEvent => re match {
+    case rEvent: ClusterEvent.ReachabilityEvent => rEvent match {
 
       case ClusterEvent.UnreachableMember(m) =>
 
       case ClusterEvent.ReachableMember(m) =>
         // a) quorum checks takes reachability into account -- we may have regained quorum upon a member becoming reachable
         // b) m's follower actor could probably do with receiving a fresh publish
-        self ! EnqueueSubmit(s"reachable(${m.address})")
+        self ! EnqueueDiscoverySubmit(s"reachable(${m.address})")
 
     }
 
-    case EnqueueSubmit(info) =>
-      pendingDiscoveryChanges = pendingDiscoveryChanges enqueue info
+    case RetryAddFollower(node) =>
+      if (discoveredNodes contains node) {
+        addFollower(node)
+      }
+
+    case Protocol.PleasePublishDiscoveryState(requestor) =>
+      self ! EnqueueDiscoverySubmit(s"request($requestor)")
+
+    case EnqueueDiscoverySubmit(info) =>
+      pendingDiscoverySubmits = pendingDiscoverySubmits enqueue info
 
   }
+
+  def addFollower(node: Address) {
+    implicit val timeout = WhoYouTimeout
+    val future = (context.actorSelection(RootActorPath(node) / "user" / ActorNames.Follower) ? Protocol.WhoYou).mapTo[Protocol.IAm]
+    discoveredNodes += (node -> future)
+    future onComplete {
+      case Success(_) => self ! EnqueueDiscoverySubmit(s"identified($node)")
+      case Failure(_) => self ! RetryAddFollower(node)
+    }
+  }
+
+  private def localFollower: Option[ActorRef] =
+    discoveredNodes.get(cluster.selfAddress).flatMap(_.value.collect {
+      case Success(iam) => iam.ref
+    })
+
+  private def remoteFollowers: Iterable[ActorRef] =
+    discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
+      case Success(iam) => iam.ref
+    })
 
   private def discoveryState(currentState: ClusterState): ClusterState = {
     val newState = ClusterState.builder(currentState)
@@ -165,10 +180,9 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
   private def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
     for {
       iAmFuture <- discoveredNodes.values
-      iAmValueTry <- iAmFuture.value
-      (ref, node) <- iAmValueTry
+      Success(iam) <- iAmFuture.value
     } {
-      builder.put(node)
+      builder.put(iam.node)
     }
     builder
   }

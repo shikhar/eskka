@@ -13,6 +13,7 @@ object Build extends sbt.Build {
       resolvers ++= Seq(Resolver.sonatypeRepo("releases"), Resolver.typesafeRepo("releases")),
 
       libraryDependencies ++= Seq(
+
         "com.google.guava" % "guava" % "16.0.1",
 
         "org.elasticsearch" % "elasticsearch" % v.elasticsearch,
@@ -22,6 +23,7 @@ object Build extends sbt.Build {
         "com.typesafe.akka" %% "akka-cluster" % v.akka,
 
         "com.typesafe.akka" %% "akka-multi-node-testkit" % v.akka % "test"
+
       )
     )
 
