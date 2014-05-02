@@ -11,7 +11,7 @@ class EskkaLogger extends Actor {
   private[this] val loggers = collection.mutable.Map[Class[_], ESLogger]()
 
   private def logger(cls: Class[_]) =
-    loggers.getOrElseUpdate(cls, ESLoggerFactory.getLogger(if (cls == classOf[DummyClassForStringSources]) "eskka" else cls.getName))
+    loggers.getOrElseUpdate(cls, ESLoggerFactory.getLogger(if (cls == classOf[DummyClassForStringSources]) "akka" else cls.getName))
 
   override def receive = {
 
