@@ -112,7 +112,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
       }
     })), classOf[ClusterEvent.MemberEvent])
     cluster.leave(cluster.selfAddress)
-    Await.ready(p.future, Duration.Inf)
+    Await.ready(p.future, ShutdownTimeout.duration)
   }
 
   override def doClose() {
@@ -152,6 +152,7 @@ object EskkaDiscovery {
   private val PartitionMonitorNodeEvalDelay = Duration(5, TimeUnit.SECONDS)
   private val PartitionMonitorPingTimeout = Duration(3, TimeUnit.SECONDS)
   private val PublishResponseHandlerTimeout = Timeout(60, TimeUnit.SECONDS)
+  private val ShutdownTimeout = Timeout(5, TimeUnit.SECONDS)
 
   private class PublishResponseHandler(ackListener: AckListener, timeout: Timeout) extends Actor {
 
