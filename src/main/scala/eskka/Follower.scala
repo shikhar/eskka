@@ -26,8 +26,11 @@ object Follower {
     Props(classOf[Follower], localNode, votingMembers, clusterService, master)
 
   private val QuorumCheckInterval = Duration(250, TimeUnit.MILLISECONDS)
+  private val RetryClearStateDelay = Duration(1, TimeUnit.SECONDS)
 
   private case object QuorumCheck
+
+  private case object ClearState
 
 }
 
@@ -94,10 +97,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
         if (currentResult) {
           pendingPublishRequest = true
         } else {
-          SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", clearClusterState) onComplete {
-            case Success(_) => log.info("quorum loss -- cleared cluster state")
-            case Failure(e) => log.error(e, "quorum loss -- failed to clear cluster state")
-          }
+          self ! ClearState
           pendingPublishRequest = false
         }
       }
@@ -108,6 +108,17 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
       }
 
       quorumCheckLastResult = currentResult
+
+    case ClearState =>
+      if (!quorumCheckLastResult) {
+        SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", clearClusterState) onComplete {
+          case Success(_) =>
+            log.info("quorum loss -- cleared cluster state")
+          case Failure(e) =>
+            log.error(e, "quorum loss -- failed to clear cluster state, will retry")
+            context.system.scheduler.scheduleOnce(RetryClearStateDelay, self, ClearState)
+        }
+      }
 
   }
 
