@@ -69,7 +69,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
     case publishMsg: Protocol.Publish =>
       if (votingMembers.quorumAvailable(cluster.state)) {
-        localFollower.foreach(_ ! Protocol.LocalMasterPublish)
+        localFollower.foreach(_ ! Protocol.LocalMasterPublishNotification(publishMsg.version))
 
         val currentRemoteFollowers = remoteFollowers
         if (!currentRemoteFollowers.isEmpty) {

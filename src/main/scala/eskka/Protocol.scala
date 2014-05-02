@@ -8,7 +8,7 @@ object Protocol {
 
   case class CheckInit(expectedRecipient: Address)
 
-  case object LocalMasterPublish
+  case class LocalMasterPublishNotification(version: Long)
 
   case class Publish(version: Long, serializedClusterState: Array[Byte])
 

@@ -61,7 +61,8 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
     case Protocol.WhoYou =>
       sender ! Protocol.IAm(self, localNode)
 
-    case Protocol.LocalMasterPublish =>
+    case Protocol.LocalMasterPublishNotification(v) =>
+      log.debug("received local master publish notification vor version {}", v)
       pendingPublishRequest = false
 
     case Protocol.Publish(version, serializedClusterState) =>
