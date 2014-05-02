@@ -69,7 +69,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
       }
 
     case VoterRegistration(node, ref) if franchisedVoters contains node =>
-      log.info("registered [{}] as a voter at [{}]", node, ref)
+      log.debug("registered [{}] as a voter at [{}]", node, ref)
       registeredVoters += (node -> ref)
 
     case mEvent: ClusterEvent.MemberEvent => mEvent match {
@@ -152,7 +152,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
   private def forgetUnreachable(node: Address) {
     unreachable -= node
     if (pendingEval contains node) {
-      log.info("withdrawing pending eval for [{}]", node)
+      log.debug("withdrawing pending eval for [{}]", node)
       reap(pendingEval(node))
       pendingEval -= node
     }

@@ -77,7 +77,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
             firstSubmit.tryComplete(res)
             res match {
               case Success(transition) =>
-                log.info("successfully submitted cluster state version {}", version)
+                log.debug("successfully submitted cluster state version {}", version)
                 sender ! Protocol.PublishAck(localNode, None)
               case Failure(error) =>
                 log.error(error, "failed to submit cluster state version {}", version)
@@ -114,7 +114,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
       if (!quorumCheckLastResult) {
         SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", clearClusterState) onComplete {
           case Success(_) =>
-            log.info("quorum loss -- cleared cluster state")
+            log.debug("quorum loss -- cleared cluster state")
           case Failure(e) =>
             log.error(e, "quorum loss -- failed to clear cluster state, will retry")
             context.system.scheduler.scheduleOnce(RetryClearStateDelay, self, ClearState)

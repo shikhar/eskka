@@ -90,7 +90,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
           val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master$summary", discoveryState)
           submission onComplete {
             case Success(_) =>
-              log.info("drain discovery submits -- successful -- {}", summary)
+              log.debug("drain discovery submits -- successful -- {}", summary)
             case Failure(e) =>
               log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
               self ! EnqueueDiscoverySubmit("retry")
