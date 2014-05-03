@@ -32,7 +32,7 @@ object Build extends sbt.Build {
   def standardSettings = Defaults.defaultSettings ++ Seq(
     organization := "eskka",
     scalaVersion := "2.11.0",
-    version := "0.1",
+    version := "0.1.0-SNAPSHOT",
     scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
   ) ++ packTask ++ com.typesafe.sbt.SbtScalariform.scalariformSettings
 
