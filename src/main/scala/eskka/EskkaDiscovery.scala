@@ -133,8 +133,9 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   override def publish(clusterState: ClusterState, ackListener: AckListener) {
     logger.info("Publishing new clusterState [{}]", clusterState)
+    val msg = Protocol.Publish(clusterState.version, ClusterState.Builder.toBytes(clusterState))
     val publishResponseHandler = system.actorOf(Props(classOf[PublishResponseHandler], ackListener, PublishResponseHandlerTimeout))
-    masterProxy.tell(Protocol.Publish(clusterState.version, ClusterState.Builder.toBytes(clusterState)), publishResponseHandler)
+    system.actorSelection(s"/user/${ActorNames.CSM}/${ActorNames.Master}").tell(msg, publishResponseHandler)
   }
 
   override def setNodeService(nodeService: NodeService) {
