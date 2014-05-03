@@ -29,6 +29,7 @@ import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySetti
 import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.transport.Transport
+import org.elasticsearch.common.unit.TimeValue
 
 class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   private[this] val clusterName: ClusterName,
@@ -83,7 +84,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
       system.actorOf(Pinger.props, ActorNames.Pinger)
 
       if (votingMembers.addresses(cluster.selfAddress)) {
-        system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, PartitionMonitorNodeEvalDelay, PartitionMonitorPingTimeout), "partition-monitor")
+        system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, partitionEvalDelay, partitionPingTimeout), "partition-monitor")
       }
 
       val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService, masterProxy), ActorNames.Follower)
@@ -143,14 +144,17 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     this.allocationService = allocationService
   }
 
+  private def partitionEvalDelay =
+    Duration(settings.getAsTime("discovery.eskka.partition.eval-delay", TimeValue.timeValueSeconds(5)).millis(), TimeUnit.MILLISECONDS)
+
+  private def partitionPingTimeout =
+    Duration(settings.getAsTime("discovery.eskka.partition.ping-timeout", TimeValue.timeValueSeconds(2)).millis(), TimeUnit.MILLISECONDS)
+
 }
 
 object EskkaDiscovery {
 
-  // TODO: make configurable
   private val DefaultPort = 9400
-  private val PartitionMonitorNodeEvalDelay = Duration(5, TimeUnit.SECONDS)
-  private val PartitionMonitorPingTimeout = Duration(3, TimeUnit.SECONDS)
   private val PublishResponseHandlerTimeout = Timeout(60, TimeUnit.SECONDS)
   private val ShutdownTimeout = Timeout(5, TimeUnit.SECONDS)
 
