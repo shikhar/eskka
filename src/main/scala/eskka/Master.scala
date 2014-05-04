@@ -3,13 +3,13 @@ package eskka
 import java.util.concurrent.TimeUnit
 
 import scala.collection.immutable
-import scala.concurrent.{ Future, Promise }
+import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 import scala.util.{ Failure, Success }
 
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
-import akka.pattern.{ ask, pipe }
+import akka.pattern.ask
 import akka.util.Timeout
 
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
@@ -45,8 +45,6 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
   private[this] val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
 
-  private[this] val firstSubmit = Promise[SubmitClusterStateUpdate.Transition]()
-
   private[this] var discoveredNodes = Map[Address, Future[Protocol.IAm]]()
 
   private[this] var pendingDiscoverySubmits = immutable.Queue[String]()
@@ -64,22 +62,17 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
   override def receive = {
 
-    case Protocol.CheckInit(expectedRecipient) if expectedRecipient == cluster.selfAddress =>
-      firstSubmit.future pipeTo sender
-
-    case publishMsg: Protocol.Publish =>
+    case Protocol.MasterPublish(clusterState) =>
       if (votingMembers.quorumAvailable(cluster.state)) {
-        localFollower.foreach(_ ! Protocol.LocalMasterPublishNotification(publishMsg.version))
-
         val currentRemoteFollowers = remoteFollowers
         if (!currentRemoteFollowers.isEmpty) {
-          log.info("publishing cluster state version [{}] to [{}]", publishMsg.version, currentRemoteFollowers.mkString(","))
-          currentRemoteFollowers.foreach(_ forward publishMsg)
+          val msg = Protocol.FollowerPublish(clusterState.version, ClusterState.Builder.toBytes(clusterState))
+          log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.mkString(","))
+          currentRemoteFollowers.foreach(_ forward msg)
         }
-
         sender ! currentRemoteFollowers.size
       } else {
-        log.warning("don't have quorum so won't forward publish message for cluster state version [{}]", publishMsg.version)
+        log.warning("don't have quorum so won't forward publish message for cluster state version [{}]", clusterState.version)
         sender ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
       }
 
@@ -89,13 +82,16 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
         if (votingMembers.quorumAvailable(cluster.state)) {
           val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master$summary", discoveryState)
           submission onComplete {
-            case Success(_) =>
-              log.debug("drain discovery submits -- successful -- {}", summary)
-            case Failure(e) =>
-              log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
-              self ! EnqueueDiscoverySubmit("retry")
+            res =>
+              res match {
+                case Success(transition) =>
+                  log.debug("drain discovery submits -- successful -- {}", summary)
+                case Failure(e) =>
+                  log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
+                  self ! EnqueueDiscoverySubmit("retry")
+              }
+              localFollower.foreach(_ ! Protocol.LocalMasterPublishNotification(res))
           }
-          firstSubmit.tryCompleteWith(submission)
         } else {
           log.warning("don't have quorum to submit pending discovery changes {}", summary)
         }

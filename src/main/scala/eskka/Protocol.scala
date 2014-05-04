@@ -2,15 +2,19 @@ package eskka
 
 import akka.actor.{ ActorRef, Address }
 
+import org.elasticsearch.cluster.ClusterState
 import org.elasticsearch.cluster.node.DiscoveryNode
+import scala.util.Try
 
 object Protocol {
 
-  case class CheckInit(expectedRecipient: Address)
+  case object CheckInit
 
-  case class LocalMasterPublishNotification(version: Long)
+  case class LocalMasterPublishNotification(transition: Try[SubmitClusterStateUpdate.Transition])
 
-  case class Publish(version: Long, serializedClusterState: Array[Byte])
+  case class MasterPublish(clusterState: ClusterState)
+
+  case class FollowerPublish(version: Long, serializedClusterState: Array[Byte])
 
   case class PleasePublishDiscoveryState(requestor: Address)
 

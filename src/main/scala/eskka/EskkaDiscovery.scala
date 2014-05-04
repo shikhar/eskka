@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit
 import scala.Some
 import scala.collection.mutable
 import scala.collection.JavaConversions._
-import scala.concurrent.{ Await, Future, Promise }
+import scala.concurrent.{ Await, Promise }
 import scala.concurrent.duration.Duration
 import scala.util.{ Failure, Success }
 
@@ -25,11 +25,11 @@ import org.elasticsearch.common.component.AbstractLifecycleComponent
 import org.elasticsearch.common.inject.Inject
 import org.elasticsearch.common.network.NetworkService
 import org.elasticsearch.common.settings.Settings
+import org.elasticsearch.common.unit.TimeValue
 import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySettings, InitialStateDiscoveryListener }
 import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.transport.Transport
-import org.elasticsearch.common.unit.TimeValue
 
 class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   private[this] val clusterName: ClusterName,
@@ -47,7 +47,6 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   private[this] lazy val system = makeActorSystem(clusterName.value, settings, networkService)
   private[this] lazy val cluster = Cluster(system)
-  private[this] lazy val masterProxy = system.actorOf(ClusterSingletonProxy.defaultProps(s"/user/${ActorNames.CSM}/${ActorNames.Master}", MasterRole))
 
   private[this] var allocationService: AllocationService = null
 
@@ -87,11 +86,14 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
         system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, partitionEvalDelay, partitionPingTimeout), "partition-monitor")
       }
 
-      val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService, masterProxy), ActorNames.Follower)
+      val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService,
+        ClusterSingletonProxy.defaultProps(s"/user/${ActorNames.CSM}/${ActorNames.Master}", MasterRole)),
+        ActorNames.Follower
+      )
 
       import scala.concurrent.ExecutionContext.Implicits.global
       implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
-      Future.firstCompletedOf(Seq(masterProxy, follower).map(_ ? Protocol.CheckInit(cluster.selfAddress))) onComplete {
+      (follower ? Protocol.CheckInit) onComplete {
         case Success(info) =>
           initialStateListeners.foreach(_.initialStateProcessed())
           logger.info("Initial state processed -- {}", info.asInstanceOf[Object])
@@ -133,9 +135,8 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   override def publish(clusterState: ClusterState, ackListener: AckListener) {
     logger.info("Publishing new clusterState [{}]", clusterState)
-    val msg = Protocol.Publish(clusterState.version, ClusterState.Builder.toBytes(clusterState))
     val publishResponseHandler = system.actorOf(Props(classOf[PublishResponseHandler], ackListener, PublishResponseHandlerTimeout))
-    system.actorSelection(s"/user/${ActorNames.CSM}/${ActorNames.Master}").tell(msg, publishResponseHandler)
+    system.actorSelection(s"/user/${ActorNames.CSM}/${ActorNames.Master}").tell(Protocol.MasterPublish(clusterState), publishResponseHandler)
   }
 
   override def setNodeService(nodeService: NodeService) {

@@ -22,8 +22,8 @@ import org.elasticsearch.gateway.GatewayService
 
 object Follower {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, master: ActorRef) =
-    Props(classOf[Follower], localNode, votingMembers, clusterService, master)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, masterProxyProps: Props) =
+    Props(classOf[Follower], localNode, votingMembers, clusterService, masterProxyProps)
 
   private val QuorumCheckInterval = Duration(250, TimeUnit.MILLISECONDS)
   private val RetryClearStateDelay = Duration(1, TimeUnit.SECONDS)
@@ -34,13 +34,15 @@ object Follower {
 
 }
 
-class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, master: ActorRef) extends Actor with ActorLogging {
+class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, masterProxyProps: Props) extends Actor with ActorLogging {
 
   import Follower._
 
   import context.dispatcher
 
   private[this] val cluster = Cluster(context.system)
+
+  private[this] val masterProxy = context.actorOf(masterProxyProps)
 
   private[this] val firstSubmit = Promise[SubmitClusterStateUpdate.Transition]()
 
@@ -55,17 +57,18 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
   override def receive = {
 
-    case Protocol.CheckInit(expectedRecipient) if expectedRecipient == cluster.selfAddress =>
+    case Protocol.CheckInit =>
       firstSubmit.future pipeTo sender
 
     case Protocol.WhoYou =>
       sender ! Protocol.IAm(self, localNode)
 
-    case Protocol.LocalMasterPublishNotification(v) =>
-      log.debug("received local master publish notification vor version {}", v)
+    case Protocol.LocalMasterPublishNotification(transition) =>
+      log.debug("received local master publish notification")
       pendingPublishRequest = false
+      firstSubmit.tryComplete(transition)
 
-    case Protocol.Publish(version, serializedClusterState) =>
+    case Protocol.FollowerPublish(version, serializedClusterState) =>
       val updatedState = ClusterState.Builder.fromBytes(serializedClusterState, localNode)
       require(version == updatedState.version, s"Deserialized cluster state version mismatch, expected=$version, have=${updatedState.version}")
       require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
@@ -74,7 +77,6 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
         log.info("submitting publish of cluster state version {}...", version)
         SubmitClusterStateUpdate(clusterService, "follower{master-publish}", updateClusterState(updatedState)) onComplete {
           res =>
-            firstSubmit.tryComplete(res)
             res match {
               case Success(transition) =>
                 log.debug("successfully submitted cluster state version {}", version)
@@ -83,6 +85,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
                 log.error(error, "failed to submit cluster state version {}", version)
                 sender ! Protocol.PublishAck(localNode, Some(error))
             }
+            firstSubmit.tryComplete(res)
         }
       } else {
         log.warning("discarding publish of cluster state version {} as quorum unavailable", version)
@@ -105,7 +108,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
       if (pendingPublishRequest) {
         log.debug("quorum available, requesting publish from master")
-        master ! Protocol.PleasePublishDiscoveryState(cluster.selfAddress)
+        masterProxy ! Protocol.PleasePublishDiscoveryState(cluster.selfAddress)
       }
 
       quorumCheckLastResult = currentResult
