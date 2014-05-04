@@ -39,7 +39,7 @@ object Build extends sbt.Build {
   def packTask = pack <<= (name, update, packageBin in Compile, target, version) map {
     (name, updateReport, jar, out, v) =>
       val archive = out / s"$name-$v.zip"
-      IO.zip(updateReport.allFiles.map(f => f -> f.getName) ++ Seq(jar -> jar.getName), archive)
+      IO.zip(updateReport.matching(configurationFilter("runtime")).map(f => f -> f.getName) ++ Seq(jar -> jar.getName), archive)
       archive
   }
 
