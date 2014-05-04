@@ -28,12 +28,12 @@ eskka runs on a different port to both elasticsearch's http and internal transpo
 
 `discovery.type` - you will need to set this to `eskka.EskkaDiscoveryModule`
 
-`discovery.eskka.seed_nodes` - array of `[host:port,..]`. The port is optional and will default to 9400. The seed nodes will default to `[<publish_host>:9400]` if unspecified. It is probably the most important piece of configuration as a quorum `(n/2 + 1)` of seed nodes is used in partition resolution - so ideally you would have 3 or more. A note from the [Akka Cluster docs](http://doc.akka.io/docs/akka/snapshot/java/cluster-usage.html#Joining_to_Seed_Nodes):
+`discovery.eskka.seed_nodes` - array of `[host:port,..]`. The port is optional and will default to 9400. The seed nodes will default to `[<discovery.eskka.host>:9400]` if unspecified. It is probably the most important piece of configuration as a quorum `(n/2 + 1)` of seed nodes is used in partition resolution - so ideally you would have 3 or more. A note from the [Akka Cluster docs](http://doc.akka.io/docs/akka/snapshot/java/cluster-usage.html#Joining_to_Seed_Nodes):
 
 > The seed nodes can be started in any order and it is not necessary to have all seed nodes running, but the node configured as the first element in the seed-nodes configuration list must be started when initially starting a cluster, otherwise the other seed-nodes will not become initialized and no other node can join the cluster. The reason for the special first seed node is to avoid forming separated islands when starting from an empty cluster. It is quickest to start all configured seed nodes at the same time (order doesn't matter), otherwise it can take up to the configured seed-node-timeout until the nodes can join.
 
 
-`discovery.eskka.host` - the [elasticsearch hostname magic](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/modules-network.html#modules-network) is supported here. It defaults to `_non_loopback_`.
+`discovery.eskka.host` - the [elasticsearch hostname magic](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/modules-network.html#modules-network) is supported here. It will fallback to `transport.bind_host`, `transport.host` and `_local_` in that order.
 
 `discovery.eskka.port` - port ranges are not supported, this must be an int. Defaults to 0 in case this is a client node, and 9400 otherwise.
 

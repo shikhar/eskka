@@ -30,6 +30,8 @@ import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySetti
 import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.transport.Transport
+import java.util
+import java.io.Serializable
 
 class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   private[this] val clusterName: ClusterName,
@@ -159,16 +161,20 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     val isMasterNode = nodeSettings.getAsBoolean("master", !isClientNode)
 
     val eskkaSettings = settings.getByPrefix("discovery.eskka.")
-    val bindHost = networkService.resolveBindHostAddress(eskkaSettings.get("host", "_non_loopback_")).getHostName
+
+    val hostname = networkService.resolvePublishHostAddress(
+      eskkaSettings.get("host", settings.get("transport.bind_host", settings.get("transport.host", "_local_")))
+    ).getHostName
+
     val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
-    val publishHost = networkService.resolvePublishHostAddress(eskkaSettings.get("host", "_local_")).getHostName
-    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(publishHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
+
+    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(hostname)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
     val seedNodeAddresses = ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort"))
     val roles = if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()
     val minNrOfMembers = new Integer((seedNodes.size / 2) + 1)
 
     val eskkaConfig = ConfigFactory.parseMap(Map(
-      "akka.remote.netty.tcp.hostname" -> bindHost,
+      "akka.remote.netty.tcp.hostname" -> hostname,
       "akka.remote.netty.tcp.port" -> bindPort,
       "akka.cluster.seed-nodes" -> seedNodeAddresses,
       "akka.cluster.roles" -> roles,
