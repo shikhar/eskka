@@ -95,14 +95,12 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
       pendingPublishRequest = false
 
     case QuorumCheck =>
-      val currentResult = votingMembers.quorumAvailable(cluster.state)
+      val quorumCheckCurrentResult = votingMembers.quorumAvailable(cluster.state)
 
-      if (currentResult != quorumCheckLastResult) {
-        if (currentResult) {
-          pendingPublishRequest = true
-        } else {
+      if (quorumCheckCurrentResult != quorumCheckLastResult) {
+        pendingPublishRequest = quorumCheckCurrentResult
+        if (!quorumCheckCurrentResult) {
           self ! ClearState
-          pendingPublishRequest = false
         }
       }
 
@@ -111,7 +109,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
         masterProxy ! Protocol.PleasePublishDiscoveryState(cluster.selfAddress)
       }
 
-      quorumCheckLastResult = currentResult
+      quorumCheckLastResult = quorumCheckCurrentResult
 
     case ClearState =>
       if (!quorumCheckLastResult) {
