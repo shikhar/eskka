@@ -18,6 +18,8 @@ object QuorumBasedPartitionMonitor {
   def props(votingMembers: VotingMembers, evalDelay: FiniteDuration, pingTimeout: Timeout) =
     Props(classOf[QuorumBasedPartitionMonitor], votingMembers, evalDelay, pingTimeout)
 
+  private val SkipMemberStatus = Set[MemberStatus](Down, Exiting)
+
   private val PingTimeoutReceiptFudge = 1.25
 
   private case class EnrollVoter(node: Address)
@@ -43,8 +45,6 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
 
   var unreachable: Set[Address] = Set.empty
   var pendingEval: Map[Address, (ActorRef, Cancellable)] = Map.empty
-
-  val skipMemberStatus = Set[MemberStatus](Down, Exiting)
 
   require(votingMembers.addresses(cluster.selfAddress))
 
@@ -95,7 +95,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
     case rEvent: ClusterEvent.ReachabilityEvent => rEvent match {
 
       case ClusterEvent.UnreachableMember(m) =>
-        if (!skipMemberStatus(m.status)) {
+        if (!SkipMemberStatus(m.status)) {
           unreachable += m.address
           evalAfterDelay(m.address, "unreachable")
         }
