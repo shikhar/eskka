@@ -45,7 +45,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   private[this] lazy val nodeId = DiscoveryService.generateNodeId(settings)
 
-  private[this] lazy val system = makeActorSystem(clusterName.value, settings, networkService)
+  private[this] lazy val system = makeActorSystem()
   private[this] lazy val cluster = Cluster(system)
 
   private[this] var allocationService: AllocationService = null
@@ -134,7 +134,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   override def nodeDescription = clusterName.value + "/" + nodeId
 
   override def publish(clusterState: ClusterState, ackListener: AckListener) {
-    logger.info("Publishing new clusterState [{}]", clusterState)
+    logger.debug("Publishing new clusterState [{}]", clusterState)
     val publishResponseHandler = system.actorOf(Props(classOf[PublishResponseHandler], ackListener, PublishResponseHandlerTimeout))
     system.actorSelection(s"/user/${ActorNames.CSM}/${ActorNames.Master}").tell(Protocol.MasterPublish(clusterState), publishResponseHandler)
   }
@@ -151,6 +151,34 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   private def partitionPingTimeout =
     Duration(settings.getAsTime("discovery.eskka.partition.ping-timeout", TimeValue.timeValueSeconds(2)).millis(), TimeUnit.MILLISECONDS)
+
+  private def makeActorSystem() = {
+    val name = clusterName.value
+    val nodeSettings = settings.getByPrefix("node.")
+    val isClientNode = nodeSettings.getAsBoolean("client", false)
+    val isMasterNode = nodeSettings.getAsBoolean("master", !isClientNode)
+
+    val eskkaSettings = settings.getByPrefix("discovery.eskka.")
+    val bindHost = networkService.resolveBindHostAddress(eskkaSettings.get("host", "_non_loopback_")).getHostName
+    val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
+    val publishHost = networkService.resolvePublishHostAddress(eskkaSettings.get("host", "_local_")).getHostName
+    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(publishHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
+    val seedNodeAddresses = ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort"))
+    val roles = if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()
+    val minNrOfMembers = new Integer((seedNodes.size / 2) + 1)
+
+    val eskkaConfig = ConfigFactory.parseMap(Map(
+      "akka.remote.netty.tcp.hostname" -> bindHost,
+      "akka.remote.netty.tcp.port" -> bindPort,
+      "akka.cluster.seed-nodes" -> seedNodeAddresses,
+      "akka.cluster.roles" -> roles,
+      "akka.cluster.min-nr-of-members" -> minNrOfMembers
+    ))
+
+    logger.info("creating actor system with eskka config {}", eskkaConfig)
+
+    ActorSystem(name, config = eskkaConfig.withFallback(ConfigFactory.load()))
+  }
 
 }
 
@@ -186,29 +214,6 @@ object EskkaDiscovery {
 
     }
 
-  }
-
-  private def makeActorSystem(name: String, settings: Settings, networkService: NetworkService) = {
-    val nodeSettings = settings.getByPrefix("node.")
-    val isClientNode = nodeSettings.getAsBoolean("client", false)
-    val isMasterNode = nodeSettings.getAsBoolean("master", !isClientNode)
-
-    val eskkaSettings = settings.getByPrefix("discovery.eskka.")
-    val bindHost = networkService.resolveBindHostAddress(eskkaSettings.get("host", "_non_loopback_")).getHostName
-    val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
-    val publishHost = networkService.resolvePublishHostAddress(eskkaSettings.get("host", "_local_")).getHostName
-    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(publishHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
-    val seedNodeAddresses = ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort"))
-    val roles = if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()
-    val minNrOfMembers = new Integer((seedNodes.size / 2) + 1)
-
-    ActorSystem(name, config = ConfigFactory.parseMap(Map(
-      "akka.remote.netty.tcp.hostname" -> bindHost,
-      "akka.remote.netty.tcp.port" -> bindPort,
-      "akka.cluster.seed-nodes" -> seedNodeAddresses,
-      "akka.cluster.roles" -> roles,
-      "akka.cluster.min-nr-of-members" -> minNrOfMembers
-    )).withFallback(ConfigFactory.load()))
   }
 
 }
