@@ -40,16 +40,16 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
   import context.dispatcher
 
-  private[this] val cluster = Cluster(context.system)
+  val cluster = Cluster(context.system)
 
-  private[this] val masterProxy = context.actorOf(masterProxyProps)
+  val masterProxy = context.actorOf(masterProxyProps)
 
-  private[this] val firstSubmit = Promise[SubmitClusterStateUpdate.Transition]()
+  val firstSubmit = Promise[SubmitClusterStateUpdate.Transition]()
 
-  private[this] val quorumCheckTask = context.system.scheduler.schedule(QuorumCheckInterval, QuorumCheckInterval, self, QuorumCheck)
+  val quorumCheckTask = context.system.scheduler.schedule(QuorumCheckInterval, QuorumCheckInterval, self, QuorumCheck)
 
-  private[this] var quorumCheckLastResult = true
-  private[this] var pendingPublishRequest = false
+  var quorumCheckLastResult = true
+  var pendingPublishRequest = false
 
   override def postStop() {
     quorumCheckTask.cancel()
@@ -126,7 +126,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
   }
 
-  private def updateClusterState(updatedState: ClusterState)(currentState: ClusterState) = {
+  def updateClusterState(updatedState: ClusterState)(currentState: ClusterState) = {
     val builder = ClusterState.builder(updatedState)
 
     // if the routing table did not change, use the original one
@@ -155,7 +155,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
     builder.build
   }
 
-  private def clearClusterState(currentState: ClusterState) =
+  def clearClusterState(currentState: ClusterState) =
     ClusterState.builder(currentState)
       .blocks(
         ClusterBlocks.builder.blocks(currentState.blocks)

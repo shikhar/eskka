@@ -29,7 +29,7 @@ class Pinger extends Actor {
 
   import context.dispatcher
 
-  private[this] val pendingPings = collection.mutable.Map[PingRequest, Cancellable]()
+  val pendingPings = collection.mutable.Map[PingRequest, Cancellable]()
 
   override def postStop() {
     pendingPings.values.foreach(_.cancel())

@@ -36,15 +36,15 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
 
   import context.dispatcher
 
-  private[this] val cluster = Cluster(context.system)
+  val cluster = Cluster(context.system)
 
-  private[this] var franchisedVoters: Set[Address] = Set.empty
-  private[this] var registeredVoters: Map[Address, ActorRef] = Map.empty
+  var franchisedVoters: Set[Address] = Set.empty
+  var registeredVoters: Map[Address, ActorRef] = Map.empty
 
-  private[this] var unreachable: Set[Address] = Set.empty
-  private[this] var pendingEval: Map[Address, (ActorRef, Cancellable)] = Map.empty
+  var unreachable: Set[Address] = Set.empty
+  var pendingEval: Map[Address, (ActorRef, Cancellable)] = Map.empty
 
-  private[this] val skipMemberStatus = Set[MemberStatus](Down, Exiting)
+  val skipMemberStatus = Set[MemberStatus](Down, Exiting)
 
   require(votingMembers.addresses(cluster.selfAddress))
 
@@ -135,12 +135,12 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
 
   }
 
-  private def evalAfterDelay(node: Address, reason: String) {
+  def evalAfterDelay(node: Address, reason: String) {
     context.system.scheduler.scheduleOnce(evalDelay, self, Evaluate(node))
     log.info("scheduled eval for [{}] in {} because [{}]", node, evalDelay, reason)
   }
 
-  private def pingResponseCollector(node: Address, promises: Map[Address, Promise[Pinger.PingResponse]]) =
+  def pingResponseCollector(node: Address, promises: Map[Address, Promise[Pinger.PingResponse]]) =
     context.actorOf(Props(new Actor {
       override def receive = {
         case rsp: Pinger.PingResponse =>
@@ -149,7 +149,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
       }
     }))
 
-  private def forgetUnreachable(node: Address) {
+  def forgetUnreachable(node: Address) {
     unreachable -= node
     if (pendingEval contains node) {
       log.debug("withdrawing pending eval for [{}]", node)
@@ -158,7 +158,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
     }
   }
 
-  private def reap(eval: (ActorRef, Cancellable)) {
+  def reap(eval: (ActorRef, Cancellable)) {
     eval match {
       case (collectorRef, task) =>
         task.cancel()

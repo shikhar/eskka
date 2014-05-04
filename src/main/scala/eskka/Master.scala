@@ -41,13 +41,13 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
   import context.dispatcher
 
-  private[this] val cluster = Cluster(context.system)
+  val cluster = Cluster(context.system)
 
-  private[this] val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
+  val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
 
-  private[this] var discoveredNodes = Map[Address, Future[Protocol.IAm]]()
+  var discoveredNodes = Map[Address, Future[Protocol.IAm]]()
 
-  private[this] var pendingDiscoverySubmits = immutable.Queue[String]()
+  var pendingDiscoverySubmits = immutable.Queue[String]()
 
   override def preStart() {
     log.info("Master actor starting up on node [{}]", localNode)
@@ -151,17 +151,17 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
     }
   }
 
-  private def localFollower: Option[ActorRef] =
+  def localFollower: Option[ActorRef] =
     discoveredNodes.get(cluster.selfAddress).flatMap(_.value.collect {
       case Success(iam) => iam.ref
     })
 
-  private def remoteFollowers: Iterable[ActorRef] =
+  def remoteFollowers: Iterable[ActorRef] =
     discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
       case Success(iam) => iam.ref
     })
 
-  private def discoveryState(currentState: ClusterState): ClusterState = {
+  def discoveryState(currentState: ClusterState): ClusterState = {
     val newState = ClusterState.builder(currentState)
       .nodes(addDiscoveredNodes(DiscoveryNodes.builder.put(localNode).localNodeId(localNode.id).masterNodeId(localNode.id)))
       .blocks(ClusterBlocks.builder.blocks(currentState.blocks).removeGlobalBlock(Discovery.NO_MASTER_BLOCK).build)
@@ -176,7 +176,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
     }
   }
 
-  private def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
+  def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
     for {
       iAmFuture <- discoveredNodes.values
       Success(iam) <- iAmFuture.value
