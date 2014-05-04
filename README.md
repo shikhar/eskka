@@ -12,11 +12,15 @@ There is no master election per-se, it is [deterministically the 'oldest'](http:
 
 ## installation
 
+### pre-packaged
+
+Use the plugin script with the arguments `--url https://s3.amazonaws.com/eskka/eskka-0.1.0-SNAPSHOT.zip --install eskka`.
+
+### package it
+
 Clone the repository. Use the [sbt](http://www.scala-sbt.org/#install) target `pack`, which will generate a plugin zip under `target/`. 
 
 Then use the plugin script with the arguments `--url file:///path/to/eskka-0.1.0-SNAPSHOT.zip --install eskka`.
-
-**TODO** upload the plugin package somewhere
 
 ## configuration
 
