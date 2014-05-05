@@ -32,8 +32,7 @@ eskka runs on a different port to both elasticsearch's http and internal transpo
 
 > The seed nodes can be started in any order and it is not necessary to have all seed nodes running, but the node configured as the first element in the seed-nodes configuration list must be started when initially starting a cluster, otherwise the other seed-nodes will not become initialized and no other node can join the cluster. The reason for the special first seed node is to avoid forming separated islands when starting from an empty cluster. It is quickest to start all configured seed nodes at the same time (order doesn't matter), otherwise it can take up to the configured seed-node-timeout until the nodes can join.
 
-
-`discovery.eskka.host` - the [elasticsearch hostname magic](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/modules-network.html#modules-network) is supported here. It will fallback to `transport.bind_host`, `transport.host` and `_local_` in that order.
+`discovery.eskka.host` - the [elasticsearch hostname magic](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/modules-network.html#modules-network) is supported here. It will fallback to `transport.bind_host`, `transport.host`, `network.bind_host`, `network.host` and `_local_`, in that order.
 
 `discovery.eskka.port` - port ranges are not supported, this must be an int. Defaults to 0 in case this is a client node, and 9400 otherwise.
 
