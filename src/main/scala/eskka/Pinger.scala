@@ -43,7 +43,7 @@ class Pinger extends Actor {
       pendingPings += (req -> timeoutTask)
 
     case Ping(req) =>
-      sender ! Status.Success(req)
+      sender() ! Status.Success(req)
 
     case Status.Success(req: PingRequest) =>
       pendingPings.remove(req).foreach {

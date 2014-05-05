@@ -58,10 +58,10 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
   override def receive = {
 
     case Protocol.CheckInit =>
-      firstSubmit.future pipeTo sender
+      firstSubmit.future pipeTo sender()
 
     case Protocol.WhoYou =>
-      sender ! Protocol.IAm(self, localNode)
+      sender() ! Protocol.IAm(self, localNode)
 
     case Protocol.LocalMasterPublishNotification(transition) =>
       log.debug("received local master publish notification")
@@ -80,16 +80,16 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
             res match {
               case Success(transition) =>
                 log.debug("successfully submitted cluster state version {}", version)
-                sender ! Protocol.PublishAck(localNode, None)
+                sender() ! Protocol.PublishAck(localNode, None)
               case Failure(error) =>
                 log.error(error, "failed to submit cluster state version {}", version)
-                sender ! Protocol.PublishAck(localNode, Some(error))
+                sender() ! Protocol.PublishAck(localNode, Some(error))
             }
             firstSubmit.tryComplete(res)
         }
       } else {
         log.warning("discarding publish of cluster state version {} as quorum unavailable", version)
-        sender ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
+        sender() ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
       }
 
       pendingPublishRequest = false
