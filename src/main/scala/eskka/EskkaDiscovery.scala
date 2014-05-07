@@ -11,7 +11,6 @@ import scala.util.{ Failure, Success }
 
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
-import akka.contrib.pattern.{ ClusterSingletonManager, ClusterSingletonProxy }
 import akka.pattern.ask
 import akka.util.Timeout
 
@@ -72,7 +71,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     cluster.registerOnMemberUp {
 
       if (cluster.selfRoles.contains(MasterRole)) {
-        system.actorOf(ClusterSingletonManager.props(
+        system.actorOf(singleton.ClusterSingletonManager.props(
           singletonProps = Master.props(localNode, votingMembers, version, clusterService, allocationService),
           singletonName = ActorNames.Master,
           terminationMessage = PoisonPill,
@@ -86,7 +85,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
       }
 
       val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService,
-        ClusterSingletonProxy.defaultProps(s"/user/${ActorNames.CSM}/${ActorNames.Master}", MasterRole)),
+        singleton.ClusterSingletonProxy.defaultProps(s"/user/${ActorNames.CSM}/${ActorNames.Master}", MasterRole)),
         ActorNames.Follower)
 
       import scala.concurrent.ExecutionContext.Implicits.global

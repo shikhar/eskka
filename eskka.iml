@@ -34,21 +34,9 @@
     <orderEntry type="library" name="SBT: com.google.protobuf:protobuf-java:2.5.0" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe:config:1.2.0" level="project" />
     <orderEntry type="library" name="SBT: io.netty:netty:3.8.0.Final" level="project" />
-    <orderEntry type="library" name="SBT: org.fusesource.hawtjni:hawtjni-runtime:1.8" level="project" />
-    <orderEntry type="library" name="SBT: org.fusesource.leveldbjni:leveldbjni:1.7" level="project" />
-    <orderEntry type="library" name="SBT: org.fusesource.leveldbjni:leveldbjni-all:1.7" level="project" />
-    <orderEntry type="library" name="SBT: org.fusesource.leveldbjni:leveldbjni-linux32:1.5" level="project" />
-    <orderEntry type="library" name="SBT: org.fusesource.leveldbjni:leveldbjni-linux64:1.5" level="project" />
-    <orderEntry type="library" name="SBT: org.fusesource.leveldbjni:leveldbjni-osx:1.5" level="project" />
-    <orderEntry type="library" name="SBT: org.fusesource.leveldbjni:leveldbjni-win32:1.5" level="project" />
-    <orderEntry type="library" name="SBT: org.fusesource.leveldbjni:leveldbjni-win64:1.5" level="project" />
-    <orderEntry type="library" name="SBT: org.iq80.leveldb:leveldb:0.5" level="project" />
-    <orderEntry type="library" name="SBT: org.iq80.leveldb:leveldb-api:0.5" level="project" />
     <orderEntry type="library" name="SBT: org.uncommons.maths:uncommons-maths:1.2.2a" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.3.2" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.3.2" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-contrib_2.11:2.3.2" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-persistence-experimental_2.11:2.3.2" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.3.2" level="project" />
     <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.11.0" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-multi-node-testkit_2.11:2.3.2" level="project" />
