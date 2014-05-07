@@ -17,7 +17,7 @@ object Build extends sbt.Build {
 
         "com.google.guava" % "guava" % "16.0.1",
 
-        "org.elasticsearch" % "elasticsearch" % v.elasticsearch,
+        "org.elasticsearch" % "elasticsearch" % v.elasticsearch % "provided",
 
         "com.typesafe.akka" %% "akka-actor" % v.akka,
         "com.typesafe.akka" %% "akka-contrib" % v.akka,
