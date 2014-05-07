@@ -9,7 +9,6 @@ import scala.util.Success
 
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent, MemberStatus }
-import akka.cluster.MemberStatus.{ Down, Exiting }
 import akka.pattern.ask
 import akka.util.Timeout
 
@@ -18,7 +17,7 @@ object QuorumBasedPartitionMonitor {
   def props(votingMembers: VotingMembers, evalDelay: FiniteDuration, pingTimeout: Timeout) =
     Props(classOf[QuorumBasedPartitionMonitor], votingMembers, evalDelay, pingTimeout)
 
-  private val SkipMemberStatus = Set[MemberStatus](Down, Exiting)
+  private val SkipMemberStatus = Set[MemberStatus](MemberStatus.Down, MemberStatus.Exiting)
 
   private val PingTimeoutReceiptFudge = 1.25
 
