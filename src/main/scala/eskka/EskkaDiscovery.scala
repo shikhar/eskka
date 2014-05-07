@@ -94,7 +94,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
       (follower ? Protocol.CheckInit) onComplete {
         case Success(info) =>
           initialStateListeners.foreach(_.initialStateProcessed())
-          logger.info("Initial state processed -- {}", info.asInstanceOf[Object])
+          logger.debug("Initial state processed -- {}", info.asInstanceOf[Object])
         case Failure(e) =>
           logger.error("Initial state processing failed!", e)
       }
