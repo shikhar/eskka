@@ -74,16 +74,17 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
       require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
 
       if (quorumCheckLastResult) {
+        val publishSender = sender()
         log.info("submitting publish of cluster state version {}...", version)
         SubmitClusterStateUpdate(clusterService, "follower{master-publish}", updateClusterState(updatedState)) onComplete {
           res =>
             res match {
               case Success(transition) =>
                 log.debug("successfully submitted cluster state version {}", version)
-                sender() ! Protocol.PublishAck(localNode, None)
+                publishSender ! Protocol.PublishAck(localNode, None)
               case Failure(error) =>
                 log.error(error, "failed to submit cluster state version {}", version)
-                sender() ! Protocol.PublishAck(localNode, Some(error))
+                publishSender ! Protocol.PublishAck(localNode, Some(error))
             }
             firstSubmit.tryComplete(res)
         }
