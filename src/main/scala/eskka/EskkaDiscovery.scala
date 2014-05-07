@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit
 import scala.Some
 import scala.collection.mutable
 import scala.collection.JavaConversions._
-import scala.concurrent.{ Await, Promise }
+import scala.concurrent.{ Await, Future, Promise, TimeoutException }
 import scala.concurrent.duration.Duration
 import scala.util.{ Failure, Success }
 
@@ -30,8 +30,6 @@ import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySetti
 import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.transport.Transport
-import java.util
-import java.io.Serializable
 
 class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   private[this] val clusterName: ClusterName,
@@ -136,9 +134,31 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   override def nodeDescription = clusterName.value + "/" + nodeId
 
   override def publish(clusterState: ClusterState, ackListener: AckListener) {
-    logger.debug("Publishing new clusterState [{}]", clusterState)
-    val publishResponseHandler = system.actorOf(Props(classOf[PublishResponseHandler], ackListener, PublishResponseHandlerTimeout))
+    logger.trace("publishing new cluster state [{}]", clusterState)
+
+    val publishTimeoutMs = discoverySettings.getPublishTimeout.millis
+
+    val nonMasterNodes = clusterState.nodes.size - 1
+
+    val (publishResponseHandler, fullyAckedFuture) =
+      if (nonMasterNodes > 0) {
+        implicit val timeout = if (publishTimeoutMs > 0) Timeout(publishTimeoutMs, TimeUnit.MILLISECONDS) else PublishTimeoutHard
+        val handler = system.actorOf(Props(classOf[PublishResponseHandler], nonMasterNodes, ackListener, timeout))
+        (handler, handler ? PublishResponseHandler.SubscribeFullyAcked)
+      } else {
+        (Actor.noSender, Future.successful(PublishResponseHandler.FullyAcked))
+      }
+
     system.actorSelection(s"/user/${ActorNames.CSM}/${ActorNames.Master}").tell(Protocol.MasterPublish(clusterState), publishResponseHandler)
+
+    if (publishTimeoutMs > 0) {
+      try {
+        Await.ready(fullyAckedFuture, Duration(publishTimeoutMs, TimeUnit.MILLISECONDS))
+      } catch {
+        case e: TimeoutException =>
+          logger.warn("timed out waiting for all nodes to acknowledge cluster state version {}", e, clusterState.version.asInstanceOf[Object])
+      }
+    }
   }
 
   override def setNodeService(nodeService: NodeService) {
@@ -191,35 +211,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 object EskkaDiscovery {
 
   private val DefaultPort = 9400
-  private val PublishResponseHandlerTimeout = Timeout(60, TimeUnit.SECONDS)
   private val ShutdownTimeout = Timeout(5, TimeUnit.SECONDS)
-
-  private class PublishResponseHandler(ackListener: AckListener, timeout: Timeout) extends Actor {
-
-    import context.dispatcher
-
-    context.system.scheduler.scheduleOnce(timeout.duration, self, PoisonPill)
-
-    var expectedAcks = 0
-    var acksReceived = 0
-
-    override def receive = {
-
-      case expectedAcks: Int =>
-        this.expectedAcks = expectedAcks
-        if (acksReceived > 0 && acksReceived == expectedAcks) {
-          context.stop(self)
-        }
-
-      case Protocol.PublishAck(node, error) =>
-        ackListener.onNodeAck(node, error.orNull)
-        acksReceived += 1
-        if (acksReceived == expectedAcks) {
-          context.stop(self)
-        }
-
-    }
-
-  }
+  private val PublishTimeoutHard = Timeout(60, TimeUnit.SECONDS)
 
 }

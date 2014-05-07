@@ -70,7 +70,6 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
           log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.mkString(","))
           currentRemoteFollowers.foreach(_ forward msg)
         }
-        sender() ! currentRemoteFollowers.size
       } else {
         log.warning("don't have quorum so won't forward publish message for cluster state version [{}]", clusterState.version)
         sender() ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
