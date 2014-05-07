@@ -5,6 +5,7 @@ import akka.actor.{ ActorRef, Address }
 import org.elasticsearch.cluster.ClusterState
 import org.elasticsearch.cluster.node.DiscoveryNode
 import scala.util.Try
+import org.elasticsearch.Version
 
 object Protocol {
 
@@ -16,7 +17,7 @@ object Protocol {
 
   case class MasterPublish(clusterState: ClusterState)
 
-  case class FollowerPublish(version: Long, serializedClusterState: Array[Byte])
+  case class FollowerPublish(esVersion: Version, serializedClusterState: Array[Byte])
 
   case class PleasePublishDiscoveryState(requestor: Address)
 

@@ -12,6 +12,7 @@ import akka.cluster.{ Cluster, ClusterEvent }
 import akka.pattern.ask
 import akka.util.Timeout
 
+import org.elasticsearch.Version
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
@@ -20,8 +21,8 @@ import org.elasticsearch.discovery.Discovery
 
 object Master {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, allocationService: AllocationService) =
-    Props(classOf[Master], localNode, votingMembers, clusterService, allocationService)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService, allocationService: AllocationService) =
+    Props(classOf[Master], localNode, votingMembers, version, clusterService, allocationService)
 
   private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
   private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
@@ -34,7 +35,7 @@ object Master {
 
 }
 
-class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, allocationService: AllocationService)
+class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService, allocationService: AllocationService)
   extends Actor with ActorLogging {
 
   import Master._
@@ -66,9 +67,12 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
       if (votingMembers.quorumAvailable(cluster.state)) {
         val currentRemoteFollowers = remoteFollowers
         if (!currentRemoteFollowers.isEmpty) {
-          val msg = Protocol.FollowerPublish(clusterState.version, ClusterState.Builder.toBytes(clusterState))
           log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.mkString(","))
-          currentRemoteFollowers.foreach(_ forward msg)
+          val requiredVersions = currentRemoteFollowers.map(_.node.version).toSet
+          val serializedStates = requiredVersions.map(v => v -> ClusterStateSerialization.toBytes(v, clusterState)).toMap
+          for (follower <- currentRemoteFollowers) {
+            follower.ref forward Protocol.FollowerPublish(version, serializedStates(follower.node.version))
+          }
         }
       } else {
         log.warning("don't have quorum so won't forward publish message for cluster state version [{}]", clusterState.version)
@@ -89,7 +93,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
                   log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
                   self ! EnqueueDiscoverySubmit("retry")
               }
-              localFollower.foreach(_ ! Protocol.LocalMasterPublishNotification(res))
+              localFollower.foreach(_.ref ! Protocol.LocalMasterPublishNotification(res))
           }
         } else {
           log.warning("don't have quorum to submit pending discovery changes {}", summary)
@@ -150,14 +154,14 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
     }
   }
 
-  def localFollower: Option[ActorRef] =
+  def localFollower: Option[Protocol.IAm] =
     discoveredNodes.get(cluster.selfAddress).flatMap(_.value.collect {
-      case Success(iam) => iam.ref
+      case Success(iam) => iam
     })
 
-  def remoteFollowers: Iterable[ActorRef] =
+  def remoteFollowers: Iterable[Protocol.IAm] =
     discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
-      case Success(iam) => iam.ref
+      case Success(iam) => iam
     })
 
   def discoveryState(currentState: ClusterState): ClusterState = {

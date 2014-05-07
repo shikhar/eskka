@@ -73,7 +73,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
       if (cluster.selfRoles.contains(MasterRole)) {
         system.actorOf(ClusterSingletonManager.props(
-          singletonProps = Master.props(localNode, votingMembers, clusterService, allocationService),
+          singletonProps = Master.props(localNode, votingMembers, version, clusterService, allocationService),
           singletonName = ActorNames.Master,
           terminationMessage = PoisonPill,
           role = Some(MasterRole)), name = ActorNames.CSM)

@@ -68,28 +68,27 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
       pendingPublishRequest = false
       firstSubmit.tryComplete(transition)
 
-    case Protocol.FollowerPublish(version, serializedClusterState) =>
-      val updatedState = ClusterState.Builder.fromBytes(serializedClusterState, localNode)
-      require(version == updatedState.version, s"Deserialized cluster state version mismatch, expected=$version, have=${updatedState.version}")
-      require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
-
+    case Protocol.FollowerPublish(esVersion, serializedClusterState) =>
       if (quorumCheckLastResult) {
+        val updatedState = ClusterStateSerialization.fromBytes(esVersion, serializedClusterState, localNode)
+        require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
+
         val publishSender = sender()
-        log.info("submitting publish of cluster state version {}...", version)
+        log.info("submitting publish of cluster state version {}...", updatedState.version)
         SubmitClusterStateUpdate(clusterService, "follower{master-publish}", updateClusterState(updatedState)) onComplete {
           res =>
             res match {
               case Success(transition) =>
-                log.debug("successfully submitted cluster state version {}", version)
+                log.debug("successfully submitted cluster state version {}", updatedState.version)
                 publishSender ! Protocol.PublishAck(localNode, None)
               case Failure(error) =>
-                log.error(error, "failed to submit cluster state version {}", version)
+                log.error(error, "failed to submit cluster state version {}", updatedState.version)
                 publishSender ! Protocol.PublishAck(localNode, Some(error))
             }
             firstSubmit.tryComplete(res)
         }
       } else {
-        log.warning("discarding publish of cluster state version {} as quorum unavailable", version)
+        log.warning("discarding publish of cluster state quorum unavailable")
         sender() ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
       }
 
