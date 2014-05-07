@@ -44,7 +44,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
   val masterProxy = context.actorOf(masterProxyProps)
 
-  val firstSubmit = Promise[SubmitClusterStateUpdate.Transition]()
+  val firstSubmit = Promise[Protocol.ClusterStateTransition]()
 
   val quorumCheckTask = context.system.scheduler.schedule(QuorumCheckInterval, QuorumCheckInterval, self, QuorumCheck)
 

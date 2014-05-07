@@ -10,7 +10,9 @@ object Protocol {
 
   case object CheckInit
 
-  case class LocalMasterPublishNotification(transition: Try[SubmitClusterStateUpdate.Transition])
+  case class ClusterStateTransition(source: String, currentState: ClusterState, prevState: ClusterState)
+
+  case class LocalMasterPublishNotification(transition: Try[ClusterStateTransition])
 
   case class MasterPublish(clusterState: ClusterState)
 
