@@ -145,8 +145,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
             indexMetaData
           else
             currentIndexMetaData,
-          false
-        )
+          false)
       }
       builder.metaData(metaDataBuilder)
     }

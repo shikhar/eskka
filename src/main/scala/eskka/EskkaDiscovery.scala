@@ -32,14 +32,14 @@ import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.transport.Transport
 
 class EskkaDiscovery @Inject() (private[this] val settings: Settings,
-  private[this] val clusterName: ClusterName,
-  private[this] val transport: Transport,
-  private[this] val networkService: NetworkService,
-  private[this] val clusterService: ClusterService,
-  private[this] val discoveryNodeService: DiscoveryNodeService,
-  private[this] val discoverySettings: DiscoverySettings,
-  private[this] val version: Version)
-    extends AbstractLifecycleComponent[Discovery](settings) with Discovery {
+                                private[this] val clusterName: ClusterName,
+                                private[this] val transport: Transport,
+                                private[this] val networkService: NetworkService,
+                                private[this] val clusterService: ClusterService,
+                                private[this] val discoveryNodeService: DiscoveryNodeService,
+                                private[this] val discoverySettings: DiscoverySettings,
+                                private[this] val version: Version)
+  extends AbstractLifecycleComponent[Discovery](settings) with Discovery {
 
   import EskkaDiscovery._
 
@@ -76,8 +76,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
           singletonProps = Master.props(localNode, votingMembers, clusterService, allocationService),
           singletonName = ActorNames.Master,
           terminationMessage = PoisonPill,
-          role = Some(MasterRole)
-        ), name = ActorNames.CSM)
+          role = Some(MasterRole)), name = ActorNames.CSM)
       }
 
       system.actorOf(Pinger.props, ActorNames.Pinger)
@@ -88,8 +87,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
       val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService,
         ClusterSingletonProxy.defaultProps(s"/user/${ActorNames.CSM}/${ActorNames.Master}", MasterRole)),
-        ActorNames.Follower
-      )
+        ActorNames.Follower)
 
       import scala.concurrent.ExecutionContext.Implicits.global
       implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
@@ -128,8 +126,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     nodeId,
     transport.boundAddress().publishAddress(),
     discoveryNodeService.buildAttributes() + ("eskka_address" -> cluster.selfAddress.toString),
-    version
-  )
+    version)
 
   override def nodeDescription = clusterName.value + "/" + nodeId
 
@@ -183,8 +180,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     val eskkaSettings = settings.getByPrefix("discovery.eskka.")
 
     val hostname = networkService.resolvePublishHostAddress(
-      eskkaSettings.get("host", settings.get("transport.bind_host", settings.get("transport.host", "_local_")))
-    ).getHostName
+      eskkaSettings.get("host", settings.get("transport.bind_host", settings.get("transport.host", "_local_")))).getHostName
 
     val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
 
@@ -198,8 +194,7 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
       "akka.remote.netty.tcp.port" -> bindPort,
       "akka.cluster.seed-nodes" -> seedNodeAddresses,
       "akka.cluster.roles" -> roles,
-      "akka.cluster.min-nr-of-members" -> minNrOfMembers
-    ))
+      "akka.cluster.min-nr-of-members" -> minNrOfMembers))
 
     logger.info("creating actor system with eskka config {}", eskkaConfig)
 

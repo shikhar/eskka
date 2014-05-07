@@ -35,7 +35,7 @@ object Master {
 }
 
 class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, allocationService: AllocationService)
-    extends Actor with ActorLogging {
+  extends Actor with ActorLogging {
 
   import Master._
 

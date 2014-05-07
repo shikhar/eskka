@@ -1,3 +1,4 @@
+import com.typesafe.sbt.SbtScalariform
 import sbt._
 import sbt.Keys._
 
@@ -34,7 +35,7 @@ object Build extends sbt.Build {
     scalaVersion := "2.11.0",
     version := "0.2.0-SNAPSHOT",
     scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
-  ) ++ packTask ++ com.typesafe.sbt.SbtScalariform.scalariformSettings
+  ) ++ packTask ++ formatSettings
 
   def packTask = pack <<= (name, update, packageBin in Compile, target, version) map {
     (name, updateReport, jar, out, v) =>
@@ -46,6 +47,18 @@ object Build extends sbt.Build {
   object v {
     val elasticsearch = "1.1.1"
     val akka = "2.3.2"
+  }
+
+  lazy val formatSettings = SbtScalariform.scalariformSettings ++ Seq(
+    SbtScalariform.ScalariformKeys.preferences in Compile  := formattingPreferences,
+    SbtScalariform.ScalariformKeys.preferences in Test     := formattingPreferences
+  )
+
+  def formattingPreferences = {
+    import scalariform.formatter.preferences._
+    FormattingPreferences()
+      .setPreference(AlignParameters, true)
+      .setPreference(AlignSingleLineCaseStatements, true)
   }
 
 }

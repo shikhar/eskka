@@ -10,8 +10,8 @@ object SubmitClusterStateUpdate {
   case class Transition(source: String, currentState: ClusterState, prevState: ClusterState)
 
   def apply(clusterService: ClusterService,
-    source: String,
-    update: ClusterState => ClusterState) = {
+            source: String,
+            update: ClusterState => ClusterState) = {
     val promise = Promise[Transition]()
     clusterService.submitStateUpdateTask(source, Priority.URGENT, new ProcessedClusterStateUpdateTask {
 
