@@ -36,7 +36,7 @@ eskka runs on a different port to both elasticsearch's http and internal transpo
 
 `discovery.eskka.port` - port ranges are not supported, this must be an int. Defaults to 0 in case this is a client node, and 9400 otherwise.
 
-`discovery.eskka.partition.eval-delay` - time value. The delay before which we will start evaluating a partitioned node by arranging for a distributed ping by the seed nodes. It defaults to 5 seconds.
+`discovery.eskka.partition.eval-delay` - time value. The delay after which we will start evaluating a partitioned node by arranging for a distributed ping by the seed nodes. It defaults to 5 seconds.
 
 `discovery.eskka.partition.ping-timeout` - time value. If a quorum of seed nodes affirmatively times out in contacting the partitioned node, it will be downed. It defaults to 2 seconds.
 
