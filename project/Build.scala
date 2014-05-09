@@ -14,8 +14,10 @@ object Build extends sbt.Build {
       version := "0.2.0-SNAPSHOT",
       scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
     ).settings(
-      SbtScalariform.ScalariformKeys.preferences in Compile := formattingPreferences,
-      SbtScalariform.ScalariformKeys.preferences in Test := formattingPreferences
+      SbtScalariform.scalariformSettings ++ Seq(
+        SbtScalariform.ScalariformKeys.preferences in Compile := formattingPreferences,
+        SbtScalariform.ScalariformKeys.preferences in Test := formattingPreferences
+      ): _*
     ).settings(
       packTask
     ).settings(
