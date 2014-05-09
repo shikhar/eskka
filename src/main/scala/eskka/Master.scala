@@ -84,7 +84,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
         }
       } else {
         log.warning("don't have quorum so won't forward publish message for cluster state version [{}]", clusterState.version)
-        publishSender ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
+        publishSender ! Protocol.PublishAck(localNode, Some(Protocol.QuorumUnavailable))
       }
 
     case DrainQueuedDiscoverySubmits =>

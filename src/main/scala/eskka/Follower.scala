@@ -98,7 +98,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
         }
       } else {
         log.warning("discarding publish of cluster state quorum unavailable")
-        publishSender ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
+        publishSender ! Protocol.PublishAck(localNode, Some(Protocol.QuorumUnavailable))
       }
 
       pendingPublishRequest = false

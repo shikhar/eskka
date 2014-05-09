@@ -27,6 +27,6 @@ object Protocol {
 
   case class IAm(ref: ActorRef, node: DiscoveryNode)
 
-  class QuorumUnavailable extends Exception
+  case object QuorumUnavailable extends Exception
 
 }
