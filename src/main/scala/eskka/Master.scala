@@ -75,7 +75,8 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
             case Success(serializedStates) =>
               log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.map(_.ref.path).mkString(","))
               for (follower <- currentRemoteFollowers) {
-                follower.ref.tell(Protocol.FollowerPublish(version, serializedStates(follower.node.version)), publishSender)
+                val followerEsVersion = follower.node.version
+                follower.ref.tell(Protocol.FollowerPublish(followerEsVersion, serializedStates(followerEsVersion)), publishSender)
               }
             case Failure(error) =>
               log.error(error, "failed to serialize cluster state version {} for elasticsearch versions {}", clusterState.version, requiredEsVersions)
