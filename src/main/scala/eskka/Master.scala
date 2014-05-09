@@ -64,19 +64,27 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
   override def receive = {
 
     case Protocol.MasterPublish(clusterState) =>
+      val publishSender = sender()
       if (votingMembers.quorumAvailable(cluster.state)) {
         val currentRemoteFollowers = remoteFollowers
         if (!currentRemoteFollowers.isEmpty) {
-          log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.mkString(","))
-          val requiredVersions = currentRemoteFollowers.map(_.node.version).toSet
-          val serializedStates = requiredVersions.map(v => v -> ClusterStateSerialization.toBytes(v, clusterState)).toMap
-          for (follower <- currentRemoteFollowers) {
-            follower.ref forward Protocol.FollowerPublish(version, serializedStates(follower.node.version))
+          val requiredEsVersions = currentRemoteFollowers.map(_.node.version).toSet
+          Future {
+            requiredEsVersions.map(v => v -> ClusterStateSerialization.toBytes(v, clusterState)).toMap
+          } onComplete {
+            case Success(serializedStates) =>
+              log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.map(_.ref.path).mkString(","))
+              for (follower <- currentRemoteFollowers) {
+                follower.ref.tell(Protocol.FollowerPublish(version, serializedStates(follower.node.version)), publishSender)
+              }
+            case Failure(error) =>
+              log.error(error, "failed to serialize cluster state version {} for elasticsearch versions {}", clusterState.version, requiredEsVersions)
+              publishSender ! Protocol.PublishAck(localNode, Some(error))
           }
         }
       } else {
         log.warning("don't have quorum so won't forward publish message for cluster state version [{}]", clusterState.version)
-        sender() ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
+        publishSender ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
       }
 
     case DrainQueuedDiscoverySubmits =>

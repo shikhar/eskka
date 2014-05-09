@@ -4,7 +4,7 @@ import java.util.concurrent.TimeUnit
 
 import scala.Some
 import scala.collection.JavaConversions._
-import scala.concurrent.Promise
+import scala.concurrent.{ Future, Promise }
 import scala.concurrent.duration.Duration
 import scala.util.{ Failure, Success }
 
@@ -69,27 +69,36 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
       firstSubmit.tryComplete(transition)
 
     case Protocol.FollowerPublish(esVersion, serializedClusterState) =>
+      val publishSender = sender()
       if (quorumCheckLastResult) {
-        val updatedState = ClusterStateSerialization.fromBytes(esVersion, serializedClusterState, localNode)
-        require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
+        Future {
+          ClusterStateSerialization.fromBytes(esVersion, serializedClusterState, localNode)
+        } onComplete {
 
-        val publishSender = sender()
-        log.info("submitting publish of cluster state version {}...", updatedState.version)
-        SubmitClusterStateUpdate(clusterService, "follower{master-publish}", updateClusterState(updatedState)) onComplete {
-          res =>
-            res match {
-              case Success(transition) =>
-                log.debug("successfully submitted cluster state version {}", updatedState.version)
-                publishSender ! Protocol.PublishAck(localNode, None)
-              case Failure(error) =>
-                log.error(error, "failed to submit cluster state version {}", updatedState.version)
-                publishSender ! Protocol.PublishAck(localNode, Some(error))
+          case Success(updatedState) =>
+            require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
+            log.info("submitting publish of cluster state version {}...", updatedState.version)
+            SubmitClusterStateUpdate(clusterService, "follower{master-publish}", updateClusterState(updatedState)) onComplete {
+              res =>
+                res match {
+                  case Success(transition) =>
+                    log.debug("successfully submitted cluster state version {}", updatedState.version)
+                    publishSender ! Protocol.PublishAck(localNode, None)
+                  case Failure(error) =>
+                    log.error(error, "failed to submit cluster state version {}", updatedState.version)
+                    publishSender ! Protocol.PublishAck(localNode, Some(error))
+                }
+                firstSubmit.tryComplete(res)
             }
-            firstSubmit.tryComplete(res)
+
+          case Failure(error) =>
+            log.error(error, "failed to deserialize cluster state received from {}", publishSender)
+            publishSender ! Protocol.PublishAck(localNode, Some(error))
+
         }
       } else {
         log.warning("discarding publish of cluster state quorum unavailable")
-        sender() ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
+        publishSender ! Protocol.PublishAck(localNode, Some(new Protocol.QuorumUnavailable))
       }
 
       pendingPublishRequest = false
