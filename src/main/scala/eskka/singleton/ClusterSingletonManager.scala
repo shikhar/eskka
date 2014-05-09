@@ -26,13 +26,13 @@ object ClusterSingletonManager {
    * Scala API: Factory method for `ClusterSingletonManager` [[akka.actor.Props]].
    */
   def props(
-             singletonProps: Props,
-             singletonName: String,
-             terminationMessage: Any,
-             role: Option[String],
-             maxHandOverRetries: Int = 10,
-             maxTakeOverRetries: Int = 5,
-             retryInterval: FiniteDuration = 1.second): Props =
+    singletonProps: Props,
+    singletonName: String,
+    terminationMessage: Any,
+    role: Option[String],
+    maxHandOverRetries: Int = 10,
+    maxTakeOverRetries: Int = 5,
+    retryInterval: FiniteDuration = 1.second): Props =
     Props(classOf[ClusterSingletonManager], singletonProps, singletonName, terminationMessage, role,
       maxHandOverRetries, maxTakeOverRetries, retryInterval).withDeploy(Deploy.local)
 
@@ -40,13 +40,13 @@ object ClusterSingletonManager {
    * Java API: Factory method for `ClusterSingletonManager` [[akka.actor.Props]].
    */
   def props(
-             singletonProps: Props,
-             singletonName: String,
-             terminationMessage: Any,
-             role: String,
-             maxHandOverRetries: Int,
-             maxTakeOverRetries: Int,
-             retryInterval: FiniteDuration): Props =
+    singletonProps: Props,
+    singletonName: String,
+    terminationMessage: Any,
+    role: String,
+    maxHandOverRetries: Int,
+    maxTakeOverRetries: Int,
+    retryInterval: FiniteDuration): Props =
     props(singletonProps, singletonName, terminationMessage,
       ClusterSingletonManager.Internal.roleOption(role), maxHandOverRetries, maxTakeOverRetries, retryInterval)
 
@@ -55,10 +55,10 @@ object ClusterSingletonManager {
    * with default values.
    */
   def defaultProps(
-                    singletonProps: Props,
-                    singletonName: String,
-                    terminationMessage: Any,
-                    role: String): Props =
+    singletonProps: Props,
+    singletonName: String,
+    terminationMessage: Any,
+    role: String): Props =
     props(singletonProps, singletonName, terminationMessage, ClusterSingletonManager.Internal.roleOption(role))
 
   /**
@@ -331,13 +331,13 @@ class ClusterSingletonManagerIsStuck(message: String) extends AkkaException(mess
  *   stopped for certain corner cases.
  */
 class ClusterSingletonManager(
-                               singletonProps: Props,
-                               singletonName: String,
-                               terminationMessage: Any,
-                               role: Option[String],
-                               maxHandOverRetries: Int,
-                               maxTakeOverRetries: Int,
-                               retryInterval: FiniteDuration)
+  singletonProps: Props,
+  singletonName: String,
+  terminationMessage: Any,
+  role: Option[String],
+  maxHandOverRetries: Int,
+  maxTakeOverRetries: Int,
+  retryInterval: FiniteDuration)
   extends Actor with FSM[ClusterSingletonManager.State, ClusterSingletonManager.Data] {
 
   // to ensure that new oldest doesn't start singleton actor before previous is stopped for certain corner cases
@@ -420,7 +420,7 @@ class ClusterSingletonManager(
     case Event(InitialOldestState(oldestOption, memberCount), _) ⇒
       oldestChangedReceived = true
       if (oldestOption == selfAddressOption && memberCount == 1)
-      // alone, oldest immediately
+        // alone, oldest immediately
         gotoOldest()
       else if (oldestOption == selfAddressOption)
         goto(BecomingOldest) using BecomingOldestData(None)
