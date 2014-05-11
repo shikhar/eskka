@@ -58,13 +58,15 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
 
   override def receive = {
 
-    case EnrollVoter(node) if franchisedVoters contains node =>
+    case ev @ EnrollVoter(node) if franchisedVoters contains node =>
       val pinger = RootActorPath(node) / "user" / ActorNames.Pinger
       val id = UUID.randomUUID
       implicit val timeout = pingTimeout
       (context.actorSelection(pinger) ? Identify(id)).mapTo[ActorIdentity] onComplete {
         case Success(ActorIdentity(i, Some(ref))) if i == id => self ! VoterRegistration(node, ref)
-        case _ => self ! EnrollVoter(node)
+        case msg =>
+          log.warning("unexpected reply trying to enroll voter [{}] -- {}", node, msg)
+          context.system.scheduler.scheduleOnce(evalDelay, self, ev) // retry, overloading evalDelay for this purpose...
       }
 
     case VoterRegistration(node, ref) if franchisedVoters contains node =>
