@@ -62,8 +62,8 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   override def doStart() {
     require(allocationService != null)
 
-    if (cluster.settings.SeedNodes.size == 1) {
-      logger.warn("Highly recommended to configure more than one seed node using `eskka.seed_nodes`")
+    if (cluster.settings.SeedNodes.size < 3) {
+      logger.warn("Recommended to configure 3 or more seed nodes using `eskka.seed_nodes`")
     }
 
     val votingMembers = VotingMembers(cluster.settings.SeedNodes.toSet)
