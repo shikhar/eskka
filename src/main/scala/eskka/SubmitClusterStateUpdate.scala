@@ -9,9 +9,10 @@ object SubmitClusterStateUpdate {
 
   def apply(clusterService: ClusterService,
             source: String,
+            priority: Priority,
             update: ClusterState => ClusterState) = {
     val promise = Promise[Protocol.ClusterStateTransition]()
-    clusterService.submitStateUpdateTask(source, Priority.URGENT, new ProcessedClusterStateUpdateTask {
+    clusterService.submitStateUpdateTask(source, priority, new ProcessedClusterStateUpdateTask {
 
       override def execute(currentState: ClusterState): ClusterState = update(currentState)
 

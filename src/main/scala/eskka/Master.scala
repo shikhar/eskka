@@ -18,6 +18,7 @@ import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.cluster.routing.allocation.AllocationService
 import org.elasticsearch.discovery.Discovery
+import org.elasticsearch.common.Priority
 
 object Master {
 
@@ -92,7 +93,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
       if (!pendingDiscoverySubmits.isEmpty) {
         val summary = pendingDiscoverySubmits.mkString("[", " :: ", "]")
         if (votingMembers.quorumAvailable(cluster.state)) {
-          val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master$summary", discoveryState)
+          val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master-$summary", Priority.IMMEDIATE, discoveryState)
           submission onComplete {
             res =>
               res match {

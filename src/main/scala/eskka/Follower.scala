@@ -19,6 +19,7 @@ import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.cluster.routing.RoutingTable
 import org.elasticsearch.discovery.Discovery
 import org.elasticsearch.gateway.GatewayService
+import org.elasticsearch.common.Priority
 
 object Follower {
 
@@ -78,7 +79,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
           case Success(updatedState) =>
             require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
             log.info("submitting publish of cluster state version {}...", updatedState.version)
-            SubmitClusterStateUpdate(clusterService, "follower{master-publish}", updateClusterState(updatedState)) onComplete {
+            SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, updateClusterState(updatedState)) onComplete {
               res =>
                 res match {
                   case Success(transition) =>
@@ -122,7 +123,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
     case ClearState =>
       if (!quorumCheckLastResult) {
-        SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", clearClusterState) onComplete {
+        SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", Priority.IMMEDIATE, clearClusterState) onComplete {
           case Success(_) =>
             log.debug("quorum loss -- cleared cluster state")
           case Failure(e) =>
