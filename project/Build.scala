@@ -11,7 +11,7 @@ object Build extends sbt.Build {
   ).settings(
       organization := "eskka",
       scalaVersion := "2.11.0",
-      version := "0.2.0-SNAPSHOT",
+      version := "0.2.0",
       scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
     ).settings(
       SbtScalariform.scalariformSettings ++ Seq(
