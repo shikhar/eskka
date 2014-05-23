@@ -4,7 +4,7 @@
     <facet type="scala" name="Scala">
       <configuration>
         <option name="compilerLibraryLevel" value="Project" />
-        <option name="compilerLibraryName" value="SBT:: scala-compiler-bundle:2.11.0" />
+        <option name="compilerLibraryName" value="SBT:: scala-compiler-bundle:2.11.1" />
         <option name="compilerOptions" value="-feature -encoding utf8" />
         <option name="deprecationWarnings" value="true" />
         <option name="uncheckedWarnings" value="true" />
@@ -32,30 +32,30 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="SBT: com.google.guava:guava:16.0.1" level="project" />
     <orderEntry type="library" name="SBT: com.google.protobuf:protobuf-java:2.5.0" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe:config:1.2.0" level="project" />
     <orderEntry type="library" name="SBT: io.netty:netty:3.8.0.Final" level="project" />
     <orderEntry type="library" name="SBT: org.uncommons.maths:uncommons-maths:1.2.2a" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.3.2" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.3.2" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.3.2" level="project" />
-    <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.11.0" level="project" />
-    <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-multi-node-testkit_2.11:2.3.2" level="project" />
-    <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-testkit_2.11:2.3.2" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: com.spatial4j:spatial4j:0.4.1" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-analyzers-common:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-codecs:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-core:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-grouping:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-highlighter:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-join:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-memory:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-misc:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-queries:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-queryparser:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-sandbox:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-spatial:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-suggest:4.7.2" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.elasticsearch:elasticsearch:1.1.1" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe:config:1.2.1" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.3.3" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.3.3" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-multi-node-testkit_2.11:2.3.3" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.3.3" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-testkit_2.11:2.3.3" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-analyzers-common:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-codecs:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-core:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-grouping:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-highlighter:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-join:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-memory:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-misc:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-queries:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-queryparser:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-sandbox:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-spatial:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-suggest:4.8.1" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.elasticsearch:elasticsearch:1.2.0" level="project" />
+    <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.11.1" level="project" />
   </component>
 </module>
 
