@@ -79,7 +79,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
           case Success(updatedState) =>
             require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
 
-            //updatedState.status(ClusterState.ClusterStateStatus.RECEIVED) -- TODO upon upgrade 1434f6bcbb9cdfdd42f696aedfa199aab09b8ca2
+            updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
 
             log.info("submitting publish of cluster state version {}...", updatedState.version)
             SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, updateClusterState(updatedState)) onComplete {
