@@ -101,7 +101,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
                   log.debug("drain discovery submits -- successful -- {}", summary)
                 case Failure(e) =>
                   log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
-                  self ! EnqueueDiscoverySubmit("retry")
+                  context.system.scheduler.scheduleOnce(MasterDiscoveryDrainInterval, self, EnqueueDiscoverySubmit("retry"))
               }
               localFollower.foreach(_.ref ! Protocol.LocalMasterPublishNotification(res))
           }
@@ -160,7 +160,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
     discoveredNodes += (node -> future)
     future onComplete {
       case Success(_) => self ! EnqueueDiscoverySubmit(s"identified($node)")
-      case Failure(_) => self ! RetryAddFollower(node)
+      case Failure(_) => context.system.scheduler.scheduleOnce(WhoYouTimeout.duration, self, RetryAddFollower(node))
     }
   }
 
