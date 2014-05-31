@@ -33,6 +33,8 @@ object Follower {
 
   private case object ClearState
 
+  private val ClusterStateUpdatePriority = Priority.URGENT
+
 }
 
 class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, masterProxyProps: Props) extends Actor with ActorLogging {
@@ -82,7 +84,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
             updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
 
             log.info("submitting publish of cluster state version {}...", updatedState.version)
-            SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, updateClusterState(updatedState)) onComplete {
+            SubmitClusterStateUpdate(clusterService, "follower{master-publish}", ClusterStateUpdatePriority, updateClusterState(updatedState)) onComplete {
               res =>
                 res match {
                   case Success(transition) =>
@@ -126,7 +128,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
     case ClearState =>
       if (!quorumCheckLastResult) {
-        SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", Priority.IMMEDIATE, clearClusterState) onComplete {
+        SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", ClusterStateUpdatePriority, clearClusterState) onComplete {
           case Success(_) =>
             log.debug("quorum loss -- cleared cluster state")
           case Failure(e) =>
