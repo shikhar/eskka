@@ -39,7 +39,7 @@ class Pinger extends Actor {
 
     case req @ PingRequest(_, from, to, timeout) =>
       context.actorSelection(RootActorPath(to) / "user" / ActorNames.Pinger) ! Ping(req)
-      val timeoutTask = context.system.scheduler.scheduleOnce(timeout.duration, req.from, PingTimeout(req))
+      val timeoutTask = context.system.scheduler.scheduleOnce(timeout.duration, self, PingTimeout(req))
       pendingPings += (req -> timeoutTask)
 
     case Ping(req) =>
@@ -51,6 +51,10 @@ class Pinger extends Actor {
           timeoutTask.cancel()
           req.from ! PingOk(req)
       }
+
+    case pt @ PingTimeout(req) =>
+      pendingPings -= req
+      req.from ! pt
 
   }
 
