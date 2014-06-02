@@ -178,8 +178,8 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
     val eskkaSettings = settings.getByPrefix("discovery.eskka.")
 
-    val hostname = networkService.resolvePublishHostAddress(
-      eskkaSettings.get("host", settings.get("transport.bind_host", settings.get("transport.host", "_local_")))).getHostName
+    val hostname = eskkaSettings.get("host",
+      networkService.resolvePublishHostAddress(settings.get("transport.bind_host", settings.get("transport.host", "_local_"))).getHostName)
 
     val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
 
