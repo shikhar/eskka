@@ -65,12 +65,12 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
       (context.actorSelection(pinger) ? Identify(id)).mapTo[ActorIdentity] onComplete {
         case Success(ActorIdentity(i, Some(ref))) if i == id => self ! VoterRegistration(node, ref)
         case msg =>
-          log.warning("unexpected reply trying to enroll voter [{}] -- {}", node, msg)
+          log.debug("unexpected reply trying to enroll voter [{}] -- {}", node, msg)
           context.system.scheduler.scheduleOnce(evalDelay, self, ev) // retry, overloading evalDelay for this purpose...
       }
 
     case VoterRegistration(node, ref) if franchisedVoters contains node =>
-      log.debug("registered [{}] as a voter at [{}]", node, ref)
+      log.info("registered [{}] as a voter at [{}]", node, ref)
       registeredVoters += (node -> ref)
 
     case mEvent: ClusterEvent.MemberEvent => mEvent match {
@@ -116,7 +116,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
       val task = context.system.scheduler.scheduleOnce(evalTimeout, self, EvaluateTimeout(node, promises.mapValues(_.future)))
       pendingEval += (node -> (collector, task))
 
-      log.info("will check on status of distributed ping request to [{}] in {}", node, evalTimeout)
+      log.debug("will check on status of distributed ping request to [{}] in {}", node, evalTimeout)
 
     case EvaluateTimeout(node, pollResults) if (unreachable contains node) && (pendingEval contains node) =>
       forgetUnreachable(node) // we will either down it or schedule a re-eval
