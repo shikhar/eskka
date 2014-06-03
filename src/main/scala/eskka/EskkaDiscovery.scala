@@ -170,6 +170,13 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
   private def partitionPingTimeout =
     Duration(settings.getAsTime("discovery.eskka.partition.ping-timeout", TimeValue.timeValueSeconds(2)).millis(), TimeUnit.MILLISECONDS)
 
+  private def determineBindHost(x: String) = {
+    if ((x.startsWith("#") && x.endsWith("#")) || (x.startsWith("_") && x.endsWith("_")))
+      networkService.resolveBindHostAddress(x).getHostAddress
+    else
+      x
+  }
+
   private def makeActorSystem() = {
     val name = clusterName.value
     val nodeSettings = settings.getByPrefix("node.")
@@ -178,18 +185,16 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
     val eskkaSettings = settings.getByPrefix("discovery.eskka.")
 
-    val hostname = eskkaSettings.get("host",
-      networkService.resolvePublishHostAddress(settings.get("transport.bind_host", settings.get("transport.host", "_local_"))).getHostName)
-
+    val bindHost = determineBindHost(eskkaSettings.get("host", settings.get("transport.bind_host", settings.get("transport.host", "_local_"))))
     val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
 
-    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(hostname)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
+    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(bindHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
     val seedNodeAddresses = ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort"))
     val roles = if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()
     val minNrOfMembers = new Integer((seedNodes.size / 2) + 1)
 
     val eskkaConfig = ConfigFactory.parseMap(Map(
-      "akka.remote.netty.tcp.hostname" -> hostname,
+      "akka.remote.netty.tcp.hostname" -> bindHost,
       "akka.remote.netty.tcp.port" -> bindPort,
       "akka.cluster.seed-nodes" -> seedNodeAddresses,
       "akka.cluster.roles" -> roles,
