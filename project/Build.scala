@@ -1,6 +1,8 @@
-import com.typesafe.sbt.SbtScalariform
 import sbt._
 import sbt.Keys._
+
+import com.typesafe.sbt.SbtScalariform._
+import com.typesafe.sbt.S3Plugin._
 
 object Build extends sbt.Build {
 
@@ -14,9 +16,16 @@ object Build extends sbt.Build {
       version := "0.3.0-SNAPSHOT",
       scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
     ).settings(
-      SbtScalariform.scalariformSettings ++ Seq(
-        SbtScalariform.ScalariformKeys.preferences in Compile := formattingPreferences,
-        SbtScalariform.ScalariformKeys.preferences in Test := formattingPreferences
+      scalariformSettings ++ Seq(
+        ScalariformKeys.preferences in Compile := formattingPreferences,
+        ScalariformKeys.preferences in Test := formattingPreferences
+      ): _*
+    ).settings(
+      s3Settings ++ Seq(
+        credentials += Credentials(Path.userHome / ".s3credentials"),
+        S3.host in S3.upload := "eskka.s3.amazonaws.com",
+        mappings in S3.upload <<= (name, version, target) map { (name, v, out) => Seq((out / s"$name-$v.zip", s"$name-$v.zip")) },
+        S3.upload <<= S3.upload dependsOn pack
       ): _*
     ).settings(
       packTask
