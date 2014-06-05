@@ -55,7 +55,7 @@ object Build extends sbt.Build {
   }
 
   object v {
-    val elasticsearch = "1.2.0"
+    val elasticsearch = "1.2.1"
     val akka = "2.3.3"
     val guava = "16.0.1"
   }
