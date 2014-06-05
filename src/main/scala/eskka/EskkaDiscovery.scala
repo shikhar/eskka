@@ -193,12 +193,20 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     val roles = if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()
     val minNrOfMembers = new Integer((seedNodes.size / 2) + 1)
 
+    val heartbeatInterval =
+      Duration(settings.getAsTime("discovery.eskka.heartbeat_interval", TimeValue.timeValueSeconds(1)).millis(), TimeUnit.MILLISECONDS)
+
+    val acceptableHeartbeatPause =
+      Duration(settings.getAsTime("discovery.eskka.acceptable_heartbeat_pause", TimeValue.timeValueSeconds(5)).millis(), TimeUnit.MILLISECONDS)
+
     val eskkaConfig = ConfigFactory.parseMap(Map(
       "akka.remote.netty.tcp.hostname" -> bindHost,
       "akka.remote.netty.tcp.port" -> bindPort,
       "akka.cluster.seed-nodes" -> seedNodeAddresses,
       "akka.cluster.roles" -> roles,
-      "akka.cluster.min-nr-of-members" -> minNrOfMembers))
+      "akka.cluster.min-nr-of-members" -> minNrOfMembers,
+      "akka.cluster.failure-detector.heartbeat-interval" -> s"${heartbeatInterval.toMillis} ms",
+      "akka.cluster.failure-detector.acceptable-heartbeat-pause" -> s"${acceptableHeartbeatPause.toMillis} ms"))
 
     logger.info("creating actor system with eskka config {}", eskkaConfig)
 
