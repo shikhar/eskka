@@ -40,10 +40,10 @@ eskka runs on a different port to both elasticsearch's http and internal transpo
 
 `discovery.eskka.heartbeat_interval` - time value. "How often keep-alive heartbeat messages should be sent to each connection." Defaults to 1s.
 
-`discovery.eskka.acceptable_heartbeat_pause` - time value. "Number of potentially lost/delayed heartbeats that will be accepted before considering it to be an anomaly. This margin is important to be able to survive sudden, occasional, pauses in heartbeat arrivals, due to for example garbage collect or network drop." Defaults to 5s.
+`discovery.eskka.acceptable_heartbeat_pause` - time value. "Number of potentially lost/delayed heartbeats that will be accepted before considering it to be an anomaly. This margin is important to be able to survive sudden, occasional, pauses in heartbeat arrivals, due to for example garbage collect or network drop." Defaults to 3s.
 
-`discovery.eskka.partition.eval-delay` - time value. The delay after which we will start evaluating a partitioned node by arranging for a distributed ping by the seed nodes. It defaults to 5 seconds.
+`discovery.eskka.partition.eval-delay` - time value. The delay after which we will start evaluating a partitioned node by arranging for a distributed ping by the seed nodes. It defaults to 5s.
 
-`discovery.eskka.partition.ping-timeout` - time value. If a quorum of seed nodes affirmatively times out in contacting the partitioned node, it will be downed. It defaults to 2 seconds.
+`discovery.eskka.partition.ping-timeout` - time value. If a quorum of seed nodes affirmatively times out in contacting the partitioned node, it will be downed. It defaults to 2s.
 
 *NOTE* Akka remoting logging is at this time fairly verbose, so you may want to consider setting the log-level for everything under the `akka` namespace to be `WARN`.
