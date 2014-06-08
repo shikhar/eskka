@@ -194,10 +194,10 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     val minNrOfMembers = new Integer((seedNodes.size / 2) + 1)
 
     val heartbeatInterval =
-      Duration(settings.getAsTime("discovery.eskka.heartbeat_interval", TimeValue.timeValueSeconds(1)).millis(), TimeUnit.MILLISECONDS)
+      Duration(eskkaSettings.getAsTime("heartbeat_interval", TimeValue.timeValueSeconds(1)).millis(), TimeUnit.MILLISECONDS)
 
     val acceptableHeartbeatPause =
-      Duration(settings.getAsTime("discovery.eskka.acceptable_heartbeat_pause", TimeValue.timeValueSeconds(3)).millis(), TimeUnit.MILLISECONDS)
+      Duration(eskkaSettings.getAsTime("acceptable_heartbeat_pause", TimeValue.timeValueSeconds(3)).millis(), TimeUnit.MILLISECONDS)
 
     val eskkaConfig = ConfigFactory.parseMap(Map(
       "akka.remote.netty.tcp.hostname" -> bindHost,
