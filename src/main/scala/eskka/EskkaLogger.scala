@@ -3,7 +3,6 @@ package eskka
 import akka.actor.Actor
 import akka.event.DummyClassForStringSources
 import akka.event.Logging._
-
 import org.elasticsearch.common.logging.{ ESLogger, ESLoggerFactory }
 
 class EskkaLogger extends Actor {

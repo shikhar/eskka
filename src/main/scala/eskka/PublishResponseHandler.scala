@@ -2,7 +2,6 @@ package eskka
 
 import akka.actor._
 import akka.util.Timeout
-
 import org.elasticsearch.discovery.Discovery.AckListener
 
 object PublishResponseHandler {
@@ -20,7 +19,6 @@ class PublishResponseHandler(acksExpected: Int, ackListener: AckListener, timeou
   require(acksExpected > 0)
 
   import PublishResponseHandler._
-
   import context.dispatcher
 
   context.system.scheduler.scheduleOnce(timeout.duration, self, PoisonPill)
@@ -30,7 +28,7 @@ class PublishResponseHandler(acksExpected: Int, ackListener: AckListener, timeou
 
   override def receive = {
 
-    case Protocol.PublishAck(node, error) =>
+    case PublishAck(node, error) =>
       ackListener.onNodeAck(node, error.orNull)
       acksReceived += 1
       if (acksReceived == acksExpected) {

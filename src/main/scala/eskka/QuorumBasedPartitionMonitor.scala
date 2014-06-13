@@ -1,16 +1,17 @@
 package eskka
 
 import java.util.UUID
-
-import scala.Some
-import scala.concurrent.{ Future, Promise }
-import scala.concurrent.duration.{ Duration, FiniteDuration }
-import scala.util.Success
+import java.util.concurrent.TimeUnit
 
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent, MemberStatus }
 import akka.pattern.ask
 import akka.util.Timeout
+
+import concurrent.forkjoin.ThreadLocalRandom
+import scala.concurrent.duration.{ Duration, FiniteDuration }
+import scala.concurrent.{ Future, Promise }
+import scala.util.Success
 
 object QuorumBasedPartitionMonitor {
 
@@ -19,7 +20,9 @@ object QuorumBasedPartitionMonitor {
 
   private val SkipMemberStatus = Set[MemberStatus](MemberStatus.Down, MemberStatus.Exiting)
 
-  private val PingTimeoutReceiptFudge = 1.25
+  private val EvalDelayFudge = 0.8
+
+  private val PingTimeoutReceiptFudge = 0.25
 
   private case class EnrollVoter(node: Address)
 
@@ -34,7 +37,6 @@ object QuorumBasedPartitionMonitor {
 class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: FiniteDuration, pingTimeout: Timeout) extends Actor with ActorLogging {
 
   import QuorumBasedPartitionMonitor._
-
   import context.dispatcher
 
   val cluster = Cluster(context.system)
@@ -45,7 +47,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
   var unreachable: Set[Address] = Set.empty
   var pendingEval: Map[Address, (ActorRef, Cancellable)] = Map.empty
 
-  require(votingMembers.addresses(cluster.selfAddress))
+  require(votingMembers.addresses(cluster.selfAddress) && cluster.selfRoles.contains(Roles.Voter))
 
   override def preStart() {
     cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent], classOf[ClusterEvent.ReachabilityEvent])
@@ -108,11 +110,11 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
 
     case Evaluate(node) if (unreachable contains node) && !(pendingEval contains node) =>
       val promises = registeredVoters.mapValues(_ => Promise[Pinger.PingResponse]()).view.force
-      val collector = pingResponseCollector(node, promises)
+      val collector = pingResponseCollector(promises)
       val pingReq = Pinger.PingRequest(UUID.randomUUID().toString, collector, node, pingTimeout)
       registeredVoters.values.foreach(_ ! pingReq)
 
-      val evalTimeout = Duration.fromNanos((pingTimeout.duration.toNanos * PingTimeoutReceiptFudge).asInstanceOf[Long])
+      val evalTimeout = Duration.fromNanos((pingTimeout.duration.toNanos * (1 + PingTimeoutReceiptFudge)).asInstanceOf[Long])
       val task = context.system.scheduler.scheduleOnce(evalTimeout, self, EvaluateTimeout(node, promises.mapValues(_.future)))
       pendingEval += (node -> (collector, task))
 
@@ -136,12 +138,19 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
 
   }
 
-  def evalAfterDelay(node: Address, reason: String) {
-    context.system.scheduler.scheduleOnce(evalDelay, self, Evaluate(node))
-    log.info("scheduled eval for [{}] in {} because [{}]", node, evalDelay, reason)
+  def fudgedEvalDelay: FiniteDuration = {
+    val timeoutSeconds = evalDelay.toSeconds
+    val fudgeSeconds = (timeoutSeconds * EvalDelayFudge).asInstanceOf[Long]
+    Duration(ThreadLocalRandom.current().nextLong(timeoutSeconds - fudgeSeconds, timeoutSeconds + fudgeSeconds), TimeUnit.SECONDS)
   }
 
-  def pingResponseCollector(node: Address, promises: Map[Address, Promise[Pinger.PingResponse]]) =
+  def evalAfterDelay(node: Address, reason: String) {
+    val delay = fudgedEvalDelay
+    context.system.scheduler.scheduleOnce(delay, self, Evaluate(node))
+    log.info("scheduled eval for [{}] in {} because [{}]", node, delay, reason)
+  }
+
+  def pingResponseCollector(promises: Map[Address, Promise[Pinger.PingResponse]]) =
     context.actorOf(Props(new Actor {
       override def receive = {
         case rsp: Pinger.PingResponse =>

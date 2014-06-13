@@ -26,7 +26,6 @@ object Pinger {
 class Pinger extends Actor {
 
   import Pinger._
-
   import context.dispatcher
 
   val pendingPings = collection.mutable.Map[PingRequest, Cancellable]()

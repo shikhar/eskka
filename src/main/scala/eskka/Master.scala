@@ -2,23 +2,22 @@ package eskka
 
 import java.util.concurrent.TimeUnit
 
-import scala.collection.immutable
-import scala.concurrent.Future
-import scala.concurrent.duration.Duration
-import scala.util.{ Failure, Success }
-
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
 import akka.pattern.ask
 import akka.util.Timeout
-
 import org.elasticsearch.Version
-import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.cluster.routing.allocation.AllocationService
-import org.elasticsearch.discovery.Discovery
+import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
+import org.elasticsearch.discovery.Discovery
+
+import scala.collection.immutable
+import scala.concurrent.Future
+import scala.concurrent.duration.Duration
+import scala.util.{ Failure, Success }
 
 object Master {
 
@@ -34,26 +33,27 @@ object Master {
 
   private case class RetryAddFollower(node: Address)
 
+  case class PublishReq(clusterState: ClusterState)
+
 }
 
 class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService, allocationService: AllocationService)
   extends Actor with ActorLogging {
 
   import Master._
-
   import context.dispatcher
 
   val cluster = Cluster(context.system)
 
   val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
 
-  var discoveredNodes = Map[Address, Future[Protocol.IAm]]()
+  var discoveredNodes = Map[Address, Future[Follower.IAmRsp]]()
 
   var pendingDiscoverySubmits = immutable.Queue[String]()
 
   override def preStart() {
     log.info("Master actor starting up on node [{}]", localNode)
-    cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent], classOf[ClusterEvent.ReachabilityEvent])
+    cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent])
   }
 
   override def postStop() {
@@ -64,49 +64,40 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
 
   override def receive = {
 
-    case Protocol.MasterPublish(clusterState) =>
+    case PublishReq(clusterState) =>
       val publishSender = sender()
-      if (votingMembers.quorumAvailable(cluster.state)) {
-        val currentRemoteFollowers = remoteFollowers
-        if (!currentRemoteFollowers.isEmpty) {
-          val requiredEsVersions = currentRemoteFollowers.map(_.node.version).toSet
-          Future {
-            requiredEsVersions.map(v => v -> ClusterStateSerialization.toBytes(v, clusterState)).toMap
-          } onComplete {
-            case Success(serializedStates) =>
-              log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.map(_.ref.path).mkString(","))
-              for (follower <- currentRemoteFollowers) {
-                val followerEsVersion = follower.node.version
-                follower.ref.tell(Protocol.FollowerPublish(followerEsVersion, serializedStates(followerEsVersion)), publishSender)
-              }
-            case Failure(error) =>
-              log.error(error, "failed to serialize cluster state version {} for elasticsearch versions {}", clusterState.version, requiredEsVersions)
-              publishSender ! Protocol.PublishAck(localNode, Some(error))
-          }
+      val currentRemoteFollowers = remoteFollowers
+      if (currentRemoteFollowers.nonEmpty) {
+        val requiredEsVersions = currentRemoteFollowers.map(_.node.version).toSet
+        Future {
+          requiredEsVersions.map(v => v -> ClusterStateSerialization.toBytes(v, clusterState)).toMap
+        } onComplete {
+          case Success(serializedStates) =>
+            log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.map(_.ref.path).mkString(","))
+            for (follower <- currentRemoteFollowers) {
+              val followerEsVersion = follower.node.version
+              follower.ref.tell(Follower.PublishReq(followerEsVersion, serializedStates(followerEsVersion)), publishSender)
+            }
+          case Failure(error) =>
+            log.error(error, "failed to serialize cluster state version {} for elasticsearch versions {}", clusterState.version, requiredEsVersions)
+            publishSender ! PublishAck(localNode, Some(error))
         }
-      } else {
-        log.warning("don't have quorum so won't forward publish message for cluster state version [{}]", clusterState.version)
-        publishSender ! Protocol.PublishAck(localNode, Some(Protocol.QuorumUnavailable))
       }
 
     case DrainQueuedDiscoverySubmits =>
-      if (!pendingDiscoverySubmits.isEmpty) {
+      if (pendingDiscoverySubmits.nonEmpty) {
         val summary = pendingDiscoverySubmits.mkString("[", " :: ", "]")
-        if (votingMembers.quorumAvailable(cluster.state)) {
-          val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master-$summary", Priority.IMMEDIATE, discoveryState)
-          submission onComplete {
-            res =>
-              res match {
-                case Success(transition) =>
-                  log.debug("drain discovery submits -- successful -- {}", summary)
-                case Failure(e) =>
-                  log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
-                  context.system.scheduler.scheduleOnce(MasterDiscoveryDrainInterval, self, EnqueueDiscoverySubmit("retry"))
-              }
-              localFollower.foreach(_.ref ! Protocol.LocalMasterPublishNotification(res))
-          }
-        } else {
-          log.warning("don't have quorum to submit pending discovery changes {}", summary)
+        val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master-$summary", Priority.IMMEDIATE, discoveryState)
+        submission onComplete {
+          res =>
+            res match {
+              case Success(transition) =>
+                log.debug("drain discovery submits -- successful -- {}", summary)
+              case Failure(e) =>
+                log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
+                context.system.scheduler.scheduleOnce(MasterDiscoveryDrainInterval, self, EnqueueDiscoverySubmit("retry"))
+            }
+            localFollower.foreach(_.ref ! Follower.LocalMasterPublishNotif(res))
         }
         pendingDiscoverySubmits = immutable.Queue()
       }
@@ -130,24 +121,10 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
 
     }
 
-    case rEvent: ClusterEvent.ReachabilityEvent => rEvent match {
-
-      case ClusterEvent.UnreachableMember(m) =>
-
-      case ClusterEvent.ReachableMember(m) =>
-        // a) quorum checks takes reachability into account -- we may have regained quorum upon a member becoming reachable
-        // b) m's follower actor could probably do with receiving a fresh publish
-        self ! EnqueueDiscoverySubmit(s"reachable(${m.address})")
-
-    }
-
     case RetryAddFollower(node) =>
       if (discoveredNodes contains node) {
         addFollower(node)
       }
-
-    case Protocol.PleasePublishDiscoveryState(requestor) =>
-      self ! EnqueueDiscoverySubmit(s"request($requestor)")
 
     case EnqueueDiscoverySubmit(info) =>
       pendingDiscoverySubmits = pendingDiscoverySubmits enqueue info
@@ -156,7 +133,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
 
   def addFollower(node: Address) {
     implicit val timeout = WhoYouTimeout
-    val future = (context.actorSelection(RootActorPath(node) / "user" / ActorNames.Follower) ? Protocol.WhoYou).mapTo[Protocol.IAm]
+    val future = (context.actorSelection(RootActorPath(node) / "user" / ActorNames.Follower) ? Follower.WhoYouReq).mapTo[Follower.IAmRsp]
     discoveredNodes += (node -> future)
     future onComplete {
       case Success(_) => self ! EnqueueDiscoverySubmit(s"identified($node)")
@@ -164,12 +141,12 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
     }
   }
 
-  def localFollower: Option[Protocol.IAm] =
+  def localFollower: Option[Follower.IAmRsp] =
     discoveredNodes.get(cluster.selfAddress).flatMap(_.value.collect {
       case Success(iam) => iam
     })
 
-  def remoteFollowers: Iterable[Protocol.IAm] =
+  def remoteFollowers: Iterable[Follower.IAmRsp] =
     discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
       case Success(iam) => iam
     })

@@ -2,54 +2,61 @@ package eskka
 
 import java.util.concurrent.TimeUnit
 
-import scala.Some
-import scala.collection.mutable
-import scala.collection.JavaConversions._
-import scala.concurrent.{ Await, Future, Promise, TimeoutException }
-import scala.concurrent.duration.Duration
-import scala.util.{ Failure, Success }
-
-import akka.actor._
-import akka.cluster.{ Cluster, ClusterEvent }
-import akka.pattern.ask
 import akka.util.Timeout
-
-import com.google.common.collect.ImmutableList
-import com.typesafe.config.ConfigFactory
 import org.elasticsearch.Version
-import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodeService }
 import org.elasticsearch.cluster.routing.allocation.AllocationService
+import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
 import org.elasticsearch.common.component.AbstractLifecycleComponent
 import org.elasticsearch.common.inject.Inject
 import org.elasticsearch.common.network.NetworkService
 import org.elasticsearch.common.settings.Settings
 import org.elasticsearch.common.unit.TimeValue
-import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySettings, InitialStateDiscoveryListener }
 import org.elasticsearch.discovery.Discovery.AckListener
+import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySettings, InitialStateDiscoveryListener }
 import org.elasticsearch.node.service.NodeService
+import org.elasticsearch.threadpool.ThreadPool
 import org.elasticsearch.transport.Transport
 
-class EskkaDiscovery @Inject() (private[this] val settings: Settings,
-                                private[this] val clusterName: ClusterName,
-                                private[this] val transport: Transport,
-                                private[this] val networkService: NetworkService,
-                                private[this] val clusterService: ClusterService,
-                                private[this] val discoveryNodeService: DiscoveryNodeService,
-                                private[this] val discoverySettings: DiscoverySettings,
-                                private[this] val version: Version)
+import concurrent.{ Await, TimeoutException }
+import scala.collection.mutable
+import scala.concurrent.forkjoin.ThreadLocalRandom
+
+object EskkaDiscovery {
+
+  private val StartTimeout = Timeout(30, TimeUnit.SECONDS)
+  private val StartTimeoutFudge = 0.5
+  private val LeaveTimeout = Timeout(5, TimeUnit.SECONDS)
+  private val ShutdownTimeout = Timeout(5, TimeUnit.SECONDS)
+
+  private def fudgedStartTimeout = {
+    val timeoutSeconds = StartTimeout.duration.toSeconds
+    val fudgeSeconds = (timeoutSeconds * StartTimeoutFudge).asInstanceOf[Long]
+    TimeValue.timeValueSeconds(ThreadLocalRandom.current().nextLong(timeoutSeconds - fudgeSeconds, timeoutSeconds + fudgeSeconds))
+  }
+
+}
+
+class EskkaDiscovery @Inject() (clusterName: ClusterName,
+                                version: Version,
+                                settings: Settings,
+                                discoverySettings: DiscoverySettings,
+                                threadPool: ThreadPool,
+                                transport: Transport,
+                                networkService: NetworkService,
+                                clusterService: ClusterService,
+                                discoveryNodeService: DiscoveryNodeService)
   extends AbstractLifecycleComponent[Discovery](settings) with Discovery {
 
   import EskkaDiscovery._
 
-  private[this] lazy val nodeId = DiscoveryService.generateNodeId(settings)
+  private lazy val nodeId = DiscoveryService.generateNodeId(settings)
 
-  private[this] lazy val system = makeActorSystem()
-  private[this] lazy val cluster = Cluster(system)
+  private var allocationService: AllocationService = null
 
-  private[this] var allocationService: AllocationService = null
+  private val initialStateListeners = mutable.LinkedHashSet[InitialStateDiscoveryListener]()
 
-  private[this] val initialStateListeners = mutable.LinkedHashSet[InitialStateDiscoveryListener]()
+  @volatile private var eskka: EskkaCluster = null
 
   override def addListener(listener: InitialStateDiscoveryListener) {
     initialStateListeners += listener
@@ -61,100 +68,67 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
 
   override def doStart() {
     require(allocationService != null)
-
-    if (cluster.settings.SeedNodes.size < 3) {
-      logger.warn("Recommended to configure 3 or more seed nodes using `eskka.seed_nodes`")
-    }
-
-    val votingMembers = VotingMembers(cluster.settings.SeedNodes.toSet)
-
-    cluster.registerOnMemberUp {
-
-      if (cluster.selfRoles.contains(MasterRole)) {
-        system.actorOf(singleton.ClusterSingletonManager.props(
-          singletonProps = Master.props(localNode, votingMembers, version, clusterService, allocationService),
-          singletonName = ActorNames.Master,
-          terminationMessage = PoisonPill,
-          role = Some(MasterRole)), name = ActorNames.CSM)
-      }
-
-      system.actorOf(Pinger.props, ActorNames.Pinger)
-
-      if (votingMembers.addresses(cluster.selfAddress)) {
-        system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, partitionEvalDelay, partitionPingTimeout), "partition-monitor")
-      }
-
-      val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService,
-        singleton.ClusterSingletonProxy.defaultProps(s"/user/${ActorNames.CSM}/${ActorNames.Master}", MasterRole)),
-        ActorNames.Follower)
-
-      import scala.concurrent.ExecutionContext.Implicits.global
-      implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
-      (follower ? Protocol.CheckInit) onComplete {
-        case Success(info) =>
-          initialStateListeners.foreach(_.initialStateProcessed())
-          logger.debug("Initial state processed -- {}", info.asInstanceOf[Object])
-        case Failure(e) =>
-          logger.error("Initial state processing failed!", e)
-      }
-
-    }
+    pleaseDoStart(initial = true)
   }
 
   override def doStop() {
-    logger.info("Leaving the cluster")
-    val p = Promise[Any]()
-    cluster.subscribe(system.actorOf(Props(new Actor {
-      override def receive = {
-        case ClusterEvent.MemberRemoved(m, _) if m.address == cluster.selfAddress =>
-          p.success(Nil)
-          context.stop(self)
-      }
-    })), classOf[ClusterEvent.MemberEvent])
-    cluster.leave(cluster.selfAddress)
-    Await.ready(p.future, ShutdownTimeout.duration)
+    Await.ready(eskka.leave(), LeaveTimeout.duration)
   }
 
   override def doClose() {
-    system.shutdown()
-    system.awaitTermination()
+    eskka.shutdown()
+    eskka.awaitTermination(ShutdownTimeout.duration)
+    eskka = null
+  }
+
+  private def restartEskka() {
+    synchronized {
+
+      logger.info("restart - stopping eskka")
+      try {
+        Await.ready(eskka.leave(), LeaveTimeout.duration)
+      } catch {
+        case te: TimeoutException =>
+      }
+      eskka.shutdown()
+      try {
+        eskka.awaitTermination(ShutdownTimeout.duration)
+      } catch {
+        case te: TimeoutException =>
+      }
+
+      logger.info("restart - starting eskka")
+      pleaseDoStart(initial = false)
+
+    }
+  }
+
+  private def pleaseDoStart(initial: Boolean) {
+    eskka = makeEskkaCluster(initial)
+    val up = eskka.start()
+    val timeout = fudgedStartTimeout
+    threadPool.schedule(timeout, ThreadPool.Names.GENERIC, new Runnable() {
+      override def run() {
+        if (!up.get()) {
+          logger.warn("timeout of {} expired at eskka startup", timeout)
+          restartEskka()
+        }
+      }
+    })
   }
 
   override lazy val localNode = new DiscoveryNode(
     settings.get("name"),
     nodeId,
     transport.boundAddress().publishAddress(),
-    discoveryNodeService.buildAttributes() + ("eskka_address" -> cluster.selfAddress.toString),
+    discoveryNodeService.buildAttributes(),
     version)
 
   override def nodeDescription = clusterName.value + "/" + nodeId
 
   override def publish(clusterState: ClusterState, ackListener: AckListener) {
     logger.trace("publishing new cluster state [{}]", clusterState)
-
-    val publishTimeoutMs = discoverySettings.getPublishTimeout.millis
-
-    val nonMasterNodes = clusterState.nodes.size - 1
-
-    val (publishResponseHandler, fullyAckedFuture) =
-      if (nonMasterNodes > 0) {
-        implicit val timeout = if (publishTimeoutMs > 0) Timeout(publishTimeoutMs, TimeUnit.MILLISECONDS) else PublishTimeoutHard
-        val handler = system.actorOf(Props(classOf[PublishResponseHandler], nonMasterNodes, ackListener, timeout))
-        (handler, handler ? PublishResponseHandler.SubscribeFullyAcked)
-      } else {
-        (Actor.noSender, Future.successful(PublishResponseHandler.FullyAcked))
-      }
-
-    system.actorSelection(s"/user/${ActorNames.CSM}/${ActorNames.Master}").tell(Protocol.MasterPublish(clusterState), publishResponseHandler)
-
-    if (publishTimeoutMs > 0) {
-      try {
-        Await.ready(fullyAckedFuture, Duration(publishTimeoutMs, TimeUnit.MILLISECONDS))
-      } catch {
-        case e: TimeoutException =>
-          logger.warn("timed out waiting for all nodes to acknowledge cluster state version {}", e, clusterState.version.asInstanceOf[Object])
-      }
-    }
+    eskka.publish(clusterState, ackListener)
   }
 
   override def setNodeService(nodeService: NodeService) {
@@ -164,61 +138,13 @@ class EskkaDiscovery @Inject() (private[this] val settings: Settings,
     this.allocationService = allocationService
   }
 
-  private def partitionEvalDelay =
-    Duration(settings.getAsTime("discovery.eskka.partition.eval-delay", TimeValue.timeValueSeconds(5)).millis(), TimeUnit.MILLISECONDS)
-
-  private def partitionPingTimeout =
-    Duration(settings.getAsTime("discovery.eskka.partition.ping-timeout", TimeValue.timeValueSeconds(2)).millis(), TimeUnit.MILLISECONDS)
-
-  private def determineBindHost(x: String) = {
-    if ((x.startsWith("#") && x.endsWith("#")) || (x.startsWith("_") && x.endsWith("_")))
-      networkService.resolveBindHostAddress(x).getHostAddress
-    else
-      x
+  private def makeEskkaCluster(initial: Boolean): EskkaCluster = {
+    new EskkaCluster(clusterName, version, settings, discoverySettings, networkService, allocationService, clusterService, localNode,
+      if (initial) initialStateListeners.toSeq else Seq(), { () =>
+        threadPool.generic().execute(new Runnable {
+          override def run() { restartEskka() }
+        })
+      })
   }
-
-  private def makeActorSystem() = {
-    val name = clusterName.value
-    val nodeSettings = settings.getByPrefix("node.")
-    val isClientNode = nodeSettings.getAsBoolean("client", false)
-    val isMasterNode = nodeSettings.getAsBoolean("master", !isClientNode)
-
-    val eskkaSettings = settings.getByPrefix("discovery.eskka.")
-
-    val bindHost = determineBindHost(eskkaSettings.get("host", settings.get("transport.bind_host", settings.get("transport.host", "_local_"))))
-    val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
-
-    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(bindHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
-    val seedNodeAddresses = ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort"))
-    val roles = if (isMasterNode) ImmutableList.of(MasterRole) else ImmutableList.of()
-    val minNrOfMembers = new Integer((seedNodes.size / 2) + 1)
-
-    val heartbeatInterval =
-      Duration(eskkaSettings.getAsTime("heartbeat_interval", TimeValue.timeValueSeconds(1)).millis(), TimeUnit.MILLISECONDS)
-
-    val acceptableHeartbeatPause =
-      Duration(eskkaSettings.getAsTime("acceptable_heartbeat_pause", TimeValue.timeValueSeconds(3)).millis(), TimeUnit.MILLISECONDS)
-
-    val eskkaConfig = ConfigFactory.parseMap(Map(
-      "akka.remote.netty.tcp.hostname" -> bindHost,
-      "akka.remote.netty.tcp.port" -> bindPort,
-      "akka.cluster.seed-nodes" -> seedNodeAddresses,
-      "akka.cluster.roles" -> roles,
-      "akka.cluster.min-nr-of-members" -> minNrOfMembers,
-      "akka.cluster.failure-detector.heartbeat-interval" -> s"${heartbeatInterval.toMillis} ms",
-      "akka.cluster.failure-detector.acceptable-heartbeat-pause" -> s"${acceptableHeartbeatPause.toMillis} ms"))
-
-    logger.info("creating actor system with eskka config {}", eskkaConfig)
-
-    ActorSystem(name, config = eskkaConfig.withFallback(ConfigFactory.load()))
-  }
-
-}
-
-object EskkaDiscovery {
-
-  private val DefaultPort = 9400
-  private val ShutdownTimeout = Timeout(5, TimeUnit.SECONDS)
-  private val PublishTimeoutHard = Timeout(60, TimeUnit.SECONDS)
 
 }

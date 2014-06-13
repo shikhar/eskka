@@ -1,140 +1,86 @@
 package eskka
 
-import java.util.concurrent.TimeUnit
-
-import scala.Some
-import scala.collection.JavaConversions._
-import scala.concurrent.{ Future, Promise }
-import scala.concurrent.duration.Duration
-import scala.util.{ Failure, Success }
-
 import akka.actor._
 import akka.cluster.Cluster
 import akka.pattern.pipe
-
-import org.elasticsearch.cluster.{ ClusterService, ClusterState }
-import org.elasticsearch.cluster.block.ClusterBlocks
+import org.elasticsearch.Version
 import org.elasticsearch.cluster.metadata.MetaData
-import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
-import org.elasticsearch.cluster.routing.RoutingTable
-import org.elasticsearch.discovery.Discovery
-import org.elasticsearch.gateway.GatewayService
+import org.elasticsearch.cluster.node.DiscoveryNode
+import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
+
+import scala.collection.JavaConversions._
+import scala.concurrent.{ Future, Promise }
+import scala.util.{ Failure, Success, Try }
 
 object Follower {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, masterProxyProps: Props) =
-    Props(classOf[Follower], localNode, votingMembers, clusterService, masterProxyProps)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
+    Props(classOf[Follower], localNode, votingMembers, clusterService)
 
-  private val QuorumCheckInterval = Duration(250, TimeUnit.MILLISECONDS)
-  private val RetryClearStateDelay = Duration(1, TimeUnit.SECONDS)
+  case object CheckInitSub
 
-  private case object QuorumCheck
+  case class PublishReq(esVersion: Version, serializedClusterState: Array[Byte])
 
-  private case object ClearState
+  case class LocalMasterPublishNotif(transition: Try[ClusterStateTransition])
 
-  private val ClusterStateUpdatePriority = Priority.URGENT
+  case object WhoYouReq
+
+  case class IAmRsp(ref: ActorRef, node: DiscoveryNode)
 
 }
 
-class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, masterProxyProps: Props) extends Actor with ActorLogging {
+class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) extends Actor with ActorLogging {
 
   import Follower._
-
   import context.dispatcher
 
   val cluster = Cluster(context.system)
 
-  val masterProxy = context.actorOf(masterProxyProps)
-
-  val firstSubmit = Promise[Protocol.ClusterStateTransition]()
-
-  val quorumCheckTask = context.system.scheduler.schedule(QuorumCheckInterval, QuorumCheckInterval, self, QuorumCheck)
-
-  var quorumCheckLastResult = true
-  var pendingPublishRequest = false
-
-  override def postStop() {
-    quorumCheckTask.cancel()
-  }
+  val firstSubmit = Promise[ClusterStateTransition]()
 
   override def receive = {
 
-    case Protocol.CheckInit =>
+    case CheckInitSub =>
       firstSubmit.future pipeTo sender()
 
-    case Protocol.WhoYou =>
-      sender() ! Protocol.IAm(self, localNode)
+    case WhoYouReq =>
+      sender() ! IAmRsp(self, localNode)
 
-    case Protocol.LocalMasterPublishNotification(transition) =>
+    case LocalMasterPublishNotif(transition) =>
       log.debug("received local master publish notification")
-      pendingPublishRequest = false
       firstSubmit.tryComplete(transition)
 
-    case Protocol.FollowerPublish(esVersion, serializedClusterState) =>
+    case PublishReq(esVersion, serializedClusterState) =>
       val publishSender = sender()
-      if (quorumCheckLastResult) {
-        Future {
-          ClusterStateSerialization.fromBytes(esVersion, serializedClusterState, localNode)
-        } onComplete {
 
-          case Success(updatedState) =>
-            require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
+      Future {
+        ClusterStateSerialization.fromBytes(esVersion, serializedClusterState, localNode)
+      } onComplete {
 
-            updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
+        case Success(updatedState) =>
+          require(updatedState.nodes.masterNodeId != localNode.id, "Master's local follower should not receive Publish messages")
 
-            log.info("submitting publish of cluster state version {}...", updatedState.version)
-            SubmitClusterStateUpdate(clusterService, "follower{master-publish}", ClusterStateUpdatePriority, updateClusterState(updatedState)) onComplete {
-              res =>
-                res match {
-                  case Success(transition) =>
-                    log.debug("successfully submitted cluster state version {}", updatedState.version)
-                    publishSender ! Protocol.PublishAck(localNode, None)
-                  case Failure(error) =>
-                    log.error(error, "failed to submit cluster state version {}", updatedState.version)
-                    publishSender ! Protocol.PublishAck(localNode, Some(error))
-                }
-                firstSubmit.tryComplete(res)
-            }
+          updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
 
-          case Failure(error) =>
-            log.error(error, "failed to deserialize cluster state received from {}", publishSender)
-            publishSender ! Protocol.PublishAck(localNode, Some(error))
+          log.info("submitting publish of cluster state version {}...", updatedState.version)
+          SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, updateClusterState(updatedState)) onComplete {
+            res =>
+              res match {
+                case Success(transition) =>
+                  log.debug("successfully submitted cluster state version {}", updatedState.version)
+                  publishSender ! PublishAck(localNode, None)
+                case Failure(error) =>
+                  log.error(error, "failed to submit cluster state version {}", updatedState.version)
+                  publishSender ! PublishAck(localNode, Some(error))
+              }
+              firstSubmit.tryComplete(res)
+          }
 
-        }
-      } else {
-        log.warning("discarding publish of cluster state as quorum unavailable")
-        publishSender ! Protocol.PublishAck(localNode, Some(Protocol.QuorumUnavailable))
-      }
+        case Failure(error) =>
+          log.error(error, "failed to deserialize cluster state received from {}", publishSender)
+          publishSender ! PublishAck(localNode, Some(error))
 
-      pendingPublishRequest = false
-
-    case QuorumCheck =>
-      val quorumCheckCurrentResult = votingMembers.quorumAvailable(cluster.state)
-
-      if (quorumCheckCurrentResult != quorumCheckLastResult) {
-        pendingPublishRequest = quorumCheckCurrentResult
-        if (!quorumCheckCurrentResult) {
-          self ! ClearState
-        }
-      }
-
-      if (pendingPublishRequest) {
-        log.debug("quorum available, requesting publish from master")
-        masterProxy ! Protocol.PleasePublishDiscoveryState(cluster.selfAddress)
-      }
-
-      quorumCheckLastResult = quorumCheckCurrentResult
-
-    case ClearState =>
-      if (!quorumCheckLastResult) {
-        SubmitClusterStateUpdate(clusterService, "follower{quorum-loss}", ClusterStateUpdatePriority, clearClusterState) onComplete {
-          case Success(_) =>
-            log.debug("quorum loss -- cleared cluster state")
-          case Failure(e) =>
-            log.error(e, "quorum loss -- failed to clear cluster state, will retry")
-            context.system.scheduler.scheduleOnce(RetryClearStateDelay, self, ClearState)
-        }
       }
 
   }
@@ -166,17 +112,5 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
     builder.build
   }
-
-  def clearClusterState(currentState: ClusterState) =
-    ClusterState.builder(currentState)
-      .blocks(
-        ClusterBlocks.builder.blocks(currentState.blocks)
-          .addGlobalBlock(Discovery.NO_MASTER_BLOCK)
-          .addGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK)
-          .build)
-      .nodes(DiscoveryNodes.builder.put(localNode).localNodeId(localNode.id))
-      .routingTable(RoutingTable.builder)
-      .metaData(MetaData.builder)
-      .build
 
 }
