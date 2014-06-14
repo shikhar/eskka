@@ -11,7 +11,6 @@ import com.google.common.collect.ImmutableList
 import com.typesafe.config.ConfigFactory
 import org.elasticsearch.Version
 import org.elasticsearch.cluster.node.DiscoveryNode
-import org.elasticsearch.cluster.routing.allocation.AllocationService
 import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
 import org.elasticsearch.common.logging.Loggers
 import org.elasticsearch.common.network.NetworkService
@@ -35,7 +34,6 @@ class EskkaCluster(clusterName: ClusterName,
                    settings: Settings,
                    discoverySettings: DiscoverySettings,
                    networkService: NetworkService,
-                   allocationService: AllocationService,
                    clusterService: ClusterService,
                    localNode: DiscoveryNode,
                    initialStateListeners: Seq[InitialStateDiscoveryListener],
@@ -70,7 +68,7 @@ class EskkaCluster(clusterName: ClusterName,
 
       val csm = if (cluster.selfRoles.contains(Roles.MasterEligible)) {
         Some(system.actorOf(singleton.ClusterSingletonManager.props(
-          singletonProps = Master.props(localNode, votingMembers, version, clusterService, allocationService),
+          singletonProps = Master.props(localNode, votingMembers, version, clusterService),
           singletonName = ActorNames.Master,
           terminationMessage = PoisonPill,
           role = Some(Roles.MasterEligible)), name = ActorNames.CSM))

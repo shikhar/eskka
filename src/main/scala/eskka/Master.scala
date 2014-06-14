@@ -21,8 +21,8 @@ import scala.util.{ Failure, Success }
 
 object Master {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService, allocationService: AllocationService) =
-    Props(classOf[Master], localNode, votingMembers, version, clusterService, allocationService)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService) =
+    Props(classOf[Master], localNode, votingMembers, version, clusterService)
 
   private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
   private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
@@ -37,7 +37,7 @@ object Master {
 
 }
 
-class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService, allocationService: AllocationService)
+class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService)
   extends Actor with ActorLogging {
 
   import Master._
@@ -152,18 +152,10 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
     })
 
   def discoveryState(currentState: ClusterState): ClusterState = {
-    val newState = ClusterState.builder(currentState)
+    ClusterState.builder(currentState)
       .nodes(addDiscoveredNodes(DiscoveryNodes.builder.put(localNode).localNodeId(localNode.id).masterNodeId(localNode.id)))
       .blocks(ClusterBlocks.builder.blocks(currentState.blocks).removeGlobalBlock(Discovery.NO_MASTER_BLOCK).build)
       .build
-
-    if (newState.nodes.size < currentState.nodes.size) {
-      // @see ZenDiscovery handleLeaveRequest() handleNodeFailure()
-      // eagerly run reroute to remove dead nodes from routing table
-      ClusterState.builder(newState).routingResult(allocationService.reroute(newState)).build
-    } else {
-      newState
-    }
   }
 
   def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {

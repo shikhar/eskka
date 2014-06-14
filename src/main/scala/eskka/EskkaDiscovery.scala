@@ -52,8 +52,6 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
 
   private lazy val nodeId = DiscoveryService.generateNodeId(settings)
 
-  private var allocationService: AllocationService = null
-
   private val initialStateListeners = mutable.LinkedHashSet[InitialStateDiscoveryListener]()
 
   @volatile private var eskka: EskkaCluster = null
@@ -67,7 +65,6 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
   }
 
   override def doStart() {
-    require(allocationService != null)
     pleaseDoStart(initial = true)
   }
 
@@ -135,14 +132,15 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
   }
 
   override def setAllocationService(allocationService: AllocationService) {
-    this.allocationService = allocationService
   }
 
   private def makeEskkaCluster(initial: Boolean): EskkaCluster = {
-    new EskkaCluster(clusterName, version, settings, discoverySettings, networkService, allocationService, clusterService, localNode,
+    new EskkaCluster(clusterName, version, settings, discoverySettings, networkService, clusterService, localNode,
       if (initial) initialStateListeners.toSeq else Seq(), { () =>
         threadPool.generic().execute(new Runnable {
-          override def run() { restartEskka() }
+          override def run() {
+            restartEskka()
+          }
         })
       })
   }
