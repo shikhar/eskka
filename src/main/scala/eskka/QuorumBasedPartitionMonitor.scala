@@ -72,7 +72,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
       }
 
     case VoterRegistration(node, ref) if franchisedVoters contains node =>
-      log.info("registered [{}] as a voter at [{}]", node, ref)
+      log.debug("registered [{}] as a voter at [{}]", node, ref)
       registeredVoters += (node -> ref)
 
     case mEvent: ClusterEvent.MemberEvent => mEvent match {
@@ -147,7 +147,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
   def evalAfterDelay(node: Address, reason: String) {
     val delay = fudgedEvalDelay
     context.system.scheduler.scheduleOnce(delay, self, Evaluate(node))
-    log.info("scheduled eval for [{}] in {} because [{}]", node, delay, reason)
+    log.debug("scheduled eval for [{}] in {} because [{}]", node, delay, reason)
   }
 
   def pingResponseCollector(promises: Map[Address, Promise[Pinger.PingResponse]]) =

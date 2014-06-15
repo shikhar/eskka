@@ -179,7 +179,7 @@ class EskkaCluster(clusterName: ClusterName,
       "akka.cluster.failure-detector.heartbeat-interval" -> s"${heartbeatInterval.toMillis} ms",
       "akka.cluster.failure-detector.acceptable-heartbeat-pause" -> s"${acceptableHeartbeatPause.toMillis} ms"))
 
-    logger.info("creating actor system with eskka config {}", eskkaConfig)
+    logger.debug("creating actor system with eskka config {}", eskkaConfig)
 
     ActorSystem(name, config = eskkaConfig.withFallback(ConfigFactory.load()))
   }

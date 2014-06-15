@@ -81,7 +81,7 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
   private def restartEskka() {
     synchronized {
 
-      logger.info("restart - stopping eskka")
+      logger.debug("restart - stopping eskka")
       try {
         Await.ready(eskka.leave(), LeaveTimeout.duration)
       } catch {
@@ -94,7 +94,7 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
         case te: TimeoutException =>
       }
 
-      logger.info("restart - starting eskka")
+      logger.debug("restart - starting eskka")
       pleaseDoStart(initial = false)
 
     }

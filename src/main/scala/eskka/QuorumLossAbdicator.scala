@@ -65,10 +65,10 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
       killSeq.foreach(context.stop)
       SubmitClusterStateUpdate(clusterService, "eskka-quorum-loss-abdicator", Priority.URGENT, clearClusterState) onComplete {
         case Success(_) =>
-          log.info("quorum loss abdication -- cleared cluster state, now invoking restart hook")
+          log.debug("cleared cluster state, now invoking restart hook")
           restartHook()
         case Failure(e) =>
-          log.error(e, "quorum loss abdication -- failed to clear cluster state, will retry in {}", CheckInterval)
+          log.error(e, "failed to clear cluster state, will retry in {}", CheckInterval)
           context.system.scheduler.scheduleOnce(CheckInterval, self, Abdicate)
       }
   }

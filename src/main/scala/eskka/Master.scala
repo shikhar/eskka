@@ -52,14 +52,14 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
   var pendingDiscoverySubmits = immutable.Queue[String]()
 
   override def preStart() {
-    log.info("Master actor starting up on node [{}]", localNode)
+    log.debug("Master actor starting up on node [{}]", localNode)
     cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent])
   }
 
   override def postStop() {
     cluster.unsubscribe(self)
     drainage.cancel()
-    log.info("Master actor stopped on node [{}]", localNode)
+    log.debug("Master actor stopped on node [{}]", localNode)
   }
 
   override def receive = {
