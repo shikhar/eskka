@@ -4,9 +4,9 @@ eskka aims at providing a robust [Zen](http://www.elasticsearch.org/guide/en/ela
 
 It builds on top of Akka Cluster which uses a [gossip protocol](http://en.wikipedia.org/wiki/Gossip_protocol). It will help to read the [spec](http://doc.akka.io/docs/akka/snapshot/common/cluster.html#cluster).
 
-We use a quorum of configured seed nodes for resolving partitions when a failure is detected (configurable thresholds) by 'downing' the affected node. A node that is downed in this manner will not be able to rejoin the cluster until restarted.
+We use a quorum of configured seed nodes for resolving partitions when a failure is detected (configurable thresholds) by 'downing' the affected node.
 
-If any node (including the master) loses reachability with a quorum of seed nodes, it clears its internal elasticsearch cluster state. In case it becomes reachable again before it is downed, it will request a publish from current master to get the latest cluster state.
+If any node (including the master) loses reachability with a quorum of seed nodes, it clears its internal elasticsearch cluster state and kicks off rejoin attempts.
 
 There is no master election per-se, it is [deterministically the 'oldest'](http://doc.akka.io/docs/akka/2.3.3/contrib/cluster-singleton.html) master-eligible member of the cluster.
 
