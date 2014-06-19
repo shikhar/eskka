@@ -64,7 +64,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
           updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
 
           log.info("submitting publish of cluster state version {}...", updatedState.version)
-          SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, updateClusterState(updatedState)) onComplete {
+          SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, _ => updatedState) onComplete {
             res =>
               res match {
                 case Success(transition) =>
@@ -83,34 +83,6 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
       }
 
-  }
-
-  def updateClusterState(updatedState: ClusterState)(currentState: ClusterState) = {
-    val builder = ClusterState.builder(updatedState)
-
-    // if the routing table did not change, use the original one
-    if (updatedState.routingTable.version == currentState.routingTable.version) {
-      builder.routingTable(currentState.routingTable)
-    }
-
-    // same for metadata
-    if (updatedState.metaData.version == currentState.metaData.version) {
-      builder.metaData(currentState.metaData)
-    } else {
-      val metaDataBuilder = MetaData.builder(updatedState.metaData).removeAllIndices()
-      for (indexMetaData <- updatedState.metaData) {
-        val currentIndexMetaData = currentState.metaData.index(indexMetaData.index)
-        metaDataBuilder.put(
-          if (currentIndexMetaData == null || currentIndexMetaData.version != indexMetaData.version)
-            indexMetaData
-          else
-            currentIndexMetaData,
-          false)
-      }
-      builder.metaData(metaDataBuilder)
-    }
-
-    builder.build
   }
 
 }
