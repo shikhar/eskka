@@ -34,7 +34,7 @@ eskka runs on a different port to both elasticsearch's http and internal transpo
 
 > The seed nodes can be started in any order and it is not necessary to have all seed nodes running, but the node configured as the first element in the seed-nodes configuration list must be started when initially starting a cluster, otherwise the other seed-nodes will not become initialized and no other node can join the cluster. The reason for the special first seed node is to avoid forming separated islands when starting from an empty cluster. It is quickest to start all configured seed nodes at the same time (order doesn't matter), otherwise it can take up to the configured seed-node-timeout until the nodes can join.
 
-`discovery.eskka.host` - the [elasticsearch hostname magic](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/modules-network.html#modules-network) is supported here. It will fallback to `transport.bind_host`, `transport.host`, `network.bind_host`, `network.host` and `_local_`, in that order.
+`discovery.eskka.host` - the [elasticsearch logical host setting values](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/modules-network.html#modules-network) are supported here. It will fallback to `transport.bind_host`, `transport.host`, `network.bind_host`, `network.host` and `_local_`, in that order.
 
 `discovery.eskka.port` - port ranges are not supported, this must be an int. Defaults to 0 in case this is a client node, and 9400 otherwise.
 
@@ -46,4 +46,104 @@ eskka runs on a different port to both elasticsearch's http and internal transpo
 
 `discovery.eskka.partition.ping-timeout` - time value. If a quorum of seed nodes affirmatively times out in contacting the partitioned node, it will be downed. It defaults to 2s.
 
-*NOTE* Akka remoting logging is at this time fairly verbose, so you may want to consider setting the log-level for everything under the `akka` namespace to be `WARN`.
+## caveats
+
+### be explicit about hostnames
+
+The `disovery.eskka.host` value is used to configure akka with the address to bind on and communicate using. akka remoting is picky about only accepting messages on the address it was bound with, and you can't use the wildcard address.
+
+Ideally, you should configure `discovery.eskka.host` or one of the ES config values it will fallback to explicitly (i.e. `transport.bind_host`, `transport.host`, `network.bind_host` or `network.host`).
+
+If you want _hostnames_ to be used, avoid logical setting values because for values like `_local_` or `_eth0_`, eskka will resolve them to the resulting IP address.
+
+The addresses that you specify in `discovery.eskka.seed_nodes` must line up exactly with the `discovery.eskka.host` configuration on the respective nodes.
+
+### tone down the logging
+
+Akka remoting logging is at this time fairly verbose, so unless you find the humm of the cluster comforting you may want to tone it down by updating `logging.yml`:
+
+```
+logger:
+   akka: WARN
+```
+
+## example configurations
+
+In any of these examples, the specification of hostname may equivalently be for `transport.bind_host`, `transport.host`, `network.bind_host` or `network.host` (as far as eskka is concerned).
+
+### three instances on three separate hosts using the default port
+
+three hosts are `n1.xyz.com`, `n2.xyz.com` and `n3.xyz.com`. since we are using the default eskka port `9400`, it need not be specified.
+
+*on n1*
+
+```
+discovery.type: eskka
+
+discovery.eskka.host: n1.xyz.com
+
+discovery.eskka.seed_nodes: ["n1.xyz.com", "n2.xyz.com", "n3.xyz.com"]
+```
+
+*on n2*
+
+```
+discovery.type: eskka
+
+discovery.eskka.host: n2.xyz.com
+
+discovery.eskka.seed_nodes: ["n1.xyz.com", "n2.xyz.com", "n3.xyz.com"]
+
+```
+
+*on n3*
+
+```
+discovery.type: eskka
+
+discovery.eskka.host: n3.xyz.com
+
+discovery.eskka.seed_nodes: ["n1.xyz.com", "n2.xyz.com", "n3.xyz.com"]
+
+```
+
+### three instances on three separate hosts using different ports
+
+addresses are `n1.xyz.com:9401`, `n2.xyz.com:9402` and `n3.xyz.com:9403`.
+
+*on n1*
+
+```
+discovery.type: eskka
+
+discovery.eskka.host: n1.xyz.com
+
+discovery.eskka.port: 9401
+
+discovery.eskka.seed_nodes: ["n1.xyz.com:9401", "n2.xyz.com:9402", "n3.xyz.com:9403"]
+```
+
+*on n2*
+
+```
+discovery.type: eskka
+
+discovery.eskka.host: n2.xyz.com
+
+discovery.eskka.port: 9402
+
+discovery.eskka.seed_nodes: ["n1.xyz.com:9401", "n2.xyz.com:9402", "n3.xyz.com:9403"]
+```
+
+*on n3*
+
+```
+discovery.type: eskka
+
+discovery.eskka.host: n3.xyz.com
+
+discovery.eskka.port: 9403
+
+discovery.eskka.seed_nodes: ["n1.xyz.com:9401", "n2.xyz.com:9402", "n3.xyz.com:9403"]
+```
+
