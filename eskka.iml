@@ -36,11 +36,6 @@
     <orderEntry type="library" name="SBT: org.uncommons.maths:uncommons-maths:1.2.2a" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: com.spatial4j:spatial4j:0.4.1" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe:config:1.2.1" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.3.3" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.3.3" level="project" />
-    <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-multi-node-testkit_2.11:2.3.3" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.3.3" level="project" />
-    <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-testkit_2.11:2.3.3" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-analyzers-common:4.8.1" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-codecs:4.8.1" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-core:4.8.1" level="project" />
@@ -56,6 +51,11 @@
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-suggest:4.8.1" level="project" />
     <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.11.1" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.elasticsearch:elasticsearch:1.2.1" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.3.4" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.3.4" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-multi-node-testkit_2.11:2.3.4" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.3.4" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: com.typesafe.akka:akka-testkit_2.11:2.3.4" level="project" />
   </component>
 </module>
 
