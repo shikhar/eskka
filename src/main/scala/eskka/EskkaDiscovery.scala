@@ -3,7 +3,6 @@ package eskka
 import java.util.concurrent.TimeUnit
 
 import akka.util.Timeout
-import org.elasticsearch.Version
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodeService }
 import org.elasticsearch.cluster.routing.allocation.AllocationService
 import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
@@ -17,10 +16,12 @@ import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySetti
 import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.threadpool.ThreadPool
 import org.elasticsearch.transport.Transport
+import org.elasticsearch.{ ElasticsearchIllegalStateException, Version }
 
 import concurrent.{ Await, TimeoutException }
 import scala.collection.mutable
 import scala.concurrent.forkjoin.ThreadLocalRandom
+import scala.util.control.Exception
 
 object EskkaDiscovery {
 
@@ -34,6 +35,8 @@ object EskkaDiscovery {
     val fudgeSeconds = (timeoutSeconds * StartTimeoutFudge).asInstanceOf[Long]
     TimeValue.timeValueSeconds(ThreadLocalRandom.current().nextLong(timeoutSeconds - fudgeSeconds, timeoutSeconds + fudgeSeconds))
   }
+
+  private val TimeoutExceptionIgnored = Exception.ignoring(classOf[TimeoutException])
 
 }
 
@@ -54,7 +57,9 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
 
   private val initialStateListeners = mutable.LinkedHashSet[InitialStateDiscoveryListener]()
 
-  @volatile private var eskka: EskkaCluster = null
+  @volatile private var moduleStopped = false
+
+  @volatile private var eskka: Option[EskkaCluster] = None
 
   override def addListener(listener: InitialStateDiscoveryListener) {
     initialStateListeners += listener
@@ -65,50 +70,59 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
   }
 
   override def doStart() {
-    pleaseDoStart(initial = true)
+    initEskka(initial = true, "module-start")
   }
 
   override def doStop() {
-    Await.ready(eskka.leave(), LeaveTimeout.duration)
-  }
+    moduleStopped = true
 
-  override def doClose() {
-    eskka.shutdown()
-    eskka.awaitTermination(ShutdownTimeout.duration)
-    eskka = null
-  }
-
-  private def restartEskka() {
     synchronized {
-
-      logger.debug("restart - stopping eskka")
-      try {
-        Await.ready(eskka.leave(), LeaveTimeout.duration)
-      } catch {
-        case te: TimeoutException =>
+      for (e <- eskka) {
+        TimeoutExceptionIgnored(Await.ready(e.leave("module-stop"), LeaveTimeout.duration))
       }
-      eskka.shutdown()
-      try {
-        eskka.awaitTermination(ShutdownTimeout.duration)
-      } catch {
-        case te: TimeoutException =>
-      }
-
-      logger.debug("restart - starting eskka")
-      pleaseDoStart(initial = false)
-
     }
   }
 
-  private def pleaseDoStart(initial: Boolean) {
-    eskka = makeEskkaCluster(initial)
-    val up = eskka.start()
+  override def doClose() {
+    moduleStopped = true
+
+    synchronized {
+      for (e <- eskka) {
+        e.shutdown("module-close")
+        TimeoutExceptionIgnored(e.awaitTermination(ShutdownTimeout.duration))
+      }
+      eskka = None
+    }
+  }
+
+  private def restartEskka(context: String) {
+    synchronized {
+      if (!moduleStopped) {
+        for (e <- eskka) {
+          TimeoutExceptionIgnored(Await.ready(e.leave(context), LeaveTimeout.duration))
+          e.shutdown(context)
+          TimeoutExceptionIgnored(e.awaitTermination(ShutdownTimeout.duration))
+          eskka = None
+        }
+        if (!moduleStopped) {
+          initEskka(initial = false, context)
+        }
+      }
+    }
+  }
+
+  private def initEskka(initial: Boolean, context: String) {
+    require(eskka.isEmpty)
+    logger.info("starting eskka [{}]", context)
+    val e = makeEskkaCluster(initial)
+    eskka = Some(e)
+    val up = e.start()
     val timeout = fudgedStartTimeout
     threadPool.schedule(timeout, ThreadPool.Names.GENERIC, new Runnable() {
       override def run() {
         if (!up.get()) {
           logger.warn("timeout of {} expired at eskka startup", timeout)
-          restartEskka()
+          restartEskka("startup-timeout")
         }
       }
     })
@@ -125,7 +139,7 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
 
   override def publish(clusterState: ClusterState, ackListener: AckListener) {
     logger.trace("publishing new cluster state [{}]", clusterState)
-    eskka.publish(clusterState, ackListener)
+    eskka.getOrElse(throw new ElasticsearchIllegalStateException("eskka is not available")).publish(clusterState, ackListener)
   }
 
   override def setNodeService(nodeService: NodeService) {
@@ -139,7 +153,7 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
       if (initial) initialStateListeners.toSeq else Seq(), { () =>
         threadPool.generic().execute(new Runnable {
           override def run() {
-            restartEskka()
+            restartEskka("restart")
           }
         })
       })

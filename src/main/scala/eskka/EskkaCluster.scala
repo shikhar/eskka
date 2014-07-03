@@ -122,8 +122,8 @@ class EskkaCluster(clusterName: ClusterName,
     }
   }
 
-  def leave(): Future[_] = {
-    logger.info("Leaving the cluster")
+  def leave(context: String): Future[_] = {
+    logger.info("Leaving the cluster [{}]", context)
     val p = Promise[Any]()
     cluster.subscribe(system.actorOf(Props(new Actor {
       override def receive = {
@@ -136,7 +136,8 @@ class EskkaCluster(clusterName: ClusterName,
     p.future
   }
 
-  def shutdown() {
+  def shutdown(context: String) {
+    logger.info("Shutting down actor system [{}]", context)
     system.shutdown()
   }
 
