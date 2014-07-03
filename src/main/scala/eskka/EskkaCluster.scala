@@ -152,7 +152,14 @@ class EskkaCluster(clusterName: ClusterName,
 
     val eskkaSettings = settings.getByPrefix("discovery.eskka.")
 
-    val bindHost = determineBindHost(eskkaSettings.get("host", settings.get("transport.bind_host", settings.get("transport.host", "_local_"))))
+    val bindHost =
+      determineBindHost(
+        eskkaSettings.get("host",
+          settings.get("transport.bind_host",
+            settings.get("transport.host",
+              settings.get("network.bind_host",
+                settings.get("network.host", "_local_"))))))
+
     val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
 
     val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(bindHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
