@@ -77,7 +77,7 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
     moduleStopped = true
 
     synchronized {
-      destroyEskka()
+      destroyEskka("module-stop")
     }
   }
 
@@ -87,7 +87,7 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
   private def restartEskka(context: String) {
     synchronized {
       if (!moduleStopped) {
-        destroyEskka()
+        destroyEskka(context)
       }
       if (!moduleStopped) {
         initEskka(initial = false, context)
@@ -112,10 +112,10 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
     })
   }
 
-  private def destroyEskka() {
+  private def destroyEskka(context: String) {
     for (e <- eskka) {
-      TimeoutExceptionIgnored(Await.ready(e.leave("module-stop"), LeaveTimeout.duration))
-      e.shutdown("module-stop")
+      TimeoutExceptionIgnored(Await.ready(e.leave(context), LeaveTimeout.duration))
+      e.shutdown(context)
       TimeoutExceptionIgnored(e.awaitTermination(ShutdownTimeout.duration))
     }
     eskka = None
