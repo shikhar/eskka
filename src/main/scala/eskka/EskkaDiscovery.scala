@@ -27,8 +27,8 @@ object EskkaDiscovery {
 
   private val StartTimeout = Timeout(30, TimeUnit.SECONDS)
   private val StartTimeoutFudge = 0.5
-  private val LeaveTimeout = Timeout(5, TimeUnit.SECONDS)
-  private val ShutdownTimeout = Timeout(5, TimeUnit.SECONDS)
+  private val LeaveTimeout = Timeout(3, TimeUnit.SECONDS)
+  private val ShutdownTimeout = Timeout(2, TimeUnit.SECONDS)
 
   private def fudgedStartTimeout = {
     val timeoutSeconds = StartTimeout.duration.toSeconds
