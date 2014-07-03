@@ -179,6 +179,7 @@ class EskkaCluster(clusterName: ClusterName,
       Duration(eskkaSettings.getAsTime("acceptable_heartbeat_pause", TimeValue.timeValueSeconds(3)).millis(), TimeUnit.MILLISECONDS)
 
     val eskkaConfig = ConfigFactory.parseMap(Map(
+      "akka.daemonic" -> "on",
       "akka.remote.netty.tcp.hostname" -> bindHost,
       "akka.remote.netty.tcp.port" -> bindPort,
       "akka.cluster.seed-nodes" -> seedNodeAddresses,
