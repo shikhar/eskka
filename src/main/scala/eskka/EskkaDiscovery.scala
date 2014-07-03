@@ -77,36 +77,20 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
     moduleStopped = true
 
     synchronized {
-      for (e <- eskka) {
-        TimeoutExceptionIgnored(Await.ready(e.leave("module-stop"), LeaveTimeout.duration))
-      }
+      destroyEskka()
     }
   }
 
   override def doClose() {
-    moduleStopped = true
-
-    synchronized {
-      for (e <- eskka) {
-        e.shutdown("module-close")
-        TimeoutExceptionIgnored(e.awaitTermination(ShutdownTimeout.duration))
-      }
-      eskka = None
-    }
   }
 
   private def restartEskka(context: String) {
     synchronized {
       if (!moduleStopped) {
-        for (e <- eskka) {
-          TimeoutExceptionIgnored(Await.ready(e.leave(context), LeaveTimeout.duration))
-          e.shutdown(context)
-          TimeoutExceptionIgnored(e.awaitTermination(ShutdownTimeout.duration))
-          eskka = None
-        }
-        if (!moduleStopped) {
-          initEskka(initial = false, context)
-        }
+        destroyEskka()
+      }
+      if (!moduleStopped) {
+        initEskka(initial = false, context)
       }
     }
   }
@@ -126,6 +110,15 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
         }
       }
     })
+  }
+
+  private def destroyEskka() {
+    for (e <- eskka) {
+      TimeoutExceptionIgnored(Await.ready(e.leave("module-stop"), LeaveTimeout.duration))
+      e.shutdown("module-stop")
+      TimeoutExceptionIgnored(e.awaitTermination(ShutdownTimeout.duration))
+    }
+    eskka = None
   }
 
   override lazy val localNode = new DiscoveryNode(
