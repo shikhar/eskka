@@ -8,7 +8,7 @@ We use a quorum of configured seed nodes for resolving partitions when a failure
 
 If any node (including the master) loses reachability with a quorum of seed nodes, it clears its internal elasticsearch cluster state and kicks off rejoin attempts.
 
-There is no master election per-se, it is [deterministically the 'oldest'](http://doc.akka.io/docs/akka/2.3.3/contrib/cluster-singleton.html) master-eligible member of the cluster.
+There is no master election per-se, it is [deterministically the 'oldest'](http://doc.akka.io/docs/akka/2.3.4/contrib/cluster-singleton.html) master-eligible member of the cluster.
 
 ## installation
 
