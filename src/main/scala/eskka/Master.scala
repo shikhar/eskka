@@ -73,7 +73,8 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
           requiredEsVersions.map(v => v -> ClusterStateSerialization.toBytes(v, clusterState)).toMap
         } onComplete {
           case Success(serializedStates) =>
-            log.info("publishing cluster state version [{}] to [{}]", clusterState.version, currentRemoteFollowers.map(_.ref.path).mkString(","))
+            val followerAddresses = currentRemoteFollowers.map(_.ref.path.address.hostPort)
+            log.info("publishing cluster state version [{}] to [{}]", clusterState.version, followerAddresses.mkString(","))
             for (follower <- currentRemoteFollowers) {
               val followerEsVersion = follower.node.version
               follower.ref.tell(Follower.PublishReq(followerEsVersion, serializedStates(followerEsVersion)), publishSender)
