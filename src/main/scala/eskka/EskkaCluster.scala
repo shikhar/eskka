@@ -117,7 +117,8 @@ class EskkaCluster(clusterName: ClusterName,
         Await.ready(fullyAckedFuture, Duration(publishTimeoutMs, TimeUnit.MILLISECONDS))
       } catch {
         case e: TimeoutException =>
-          logger.warn("timed out waiting for all nodes to acknowledge cluster state version {}", e, clusterState.version.asInstanceOf[Object])
+          logger.warn("timed out ({}) waiting for all nodes to acknowledge cluster state version {}",
+            discoverySettings.getPublishTimeout, clusterState.version.asInstanceOf[Object])
       }
     }
   }
