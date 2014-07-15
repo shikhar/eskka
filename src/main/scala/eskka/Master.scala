@@ -23,7 +23,7 @@ object Master {
   def props(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService) =
     Props(classOf[Master], localNode, votingMembers, version, clusterService)
 
-  private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
+  private val MasterDiscoveryDrainInterval = Duration(100, TimeUnit.MILLISECONDS)
   private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
 
   private case object DrainQueuedDiscoverySubmits
