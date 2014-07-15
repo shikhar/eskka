@@ -9,7 +9,6 @@ import akka.util.Timeout
 import org.elasticsearch.Version
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
-import org.elasticsearch.cluster.routing.allocation.AllocationService
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
 import org.elasticsearch.discovery.Discovery
