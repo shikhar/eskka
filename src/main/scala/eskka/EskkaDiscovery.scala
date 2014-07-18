@@ -25,7 +25,7 @@ import scala.util.control.Exception
 
 object EskkaDiscovery {
 
-  private val StartTimeout = Timeout(30, TimeUnit.SECONDS)
+  private val StartTimeout = Timeout(60, TimeUnit.SECONDS)
   private val StartTimeoutFudge = 0.5
   private val LeaveTimeout = Timeout(4, TimeUnit.SECONDS)
   private val ShutdownTimeout = Timeout(1, TimeUnit.SECONDS)
