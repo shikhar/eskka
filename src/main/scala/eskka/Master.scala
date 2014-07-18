@@ -2,8 +2,6 @@ package eskka
 
 import java.util.concurrent.TimeUnit
 
-import org.elasticsearch.common.collect.ImmutableOpenMap
-
 import scala.collection.immutable
 import concurrent.{ Promise, Future }
 import scala.concurrent.duration.Duration
@@ -87,7 +85,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
 
     case PublishReq(clusterState) =>
       val publishSender = sender()
-      val currentRemoteFollowers = remoteFollowers(clusterState.nodes.nodes)
+      val currentRemoteFollowers = remoteFollowers.filter(iam => clusterState.nodes.nodes.containsKey(iam.node.id))
       if (currentRemoteFollowers.nonEmpty) {
         val requiredEsVersions = currentRemoteFollowers.map(_.node.version).toSet
         Future {
@@ -217,9 +215,9 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
       case Success(iam) => iam
     })
 
-  def remoteFollowers(nodes: ImmutableOpenMap[String, DiscoveryNode]): Iterable[Follower.IAmRsp] =
+  def remoteFollowers: Iterable[Follower.IAmRsp] =
     discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
-      case Success(iam) if nodes.containsKey(iam.node.id) => iam
+      case Success(iam) => iam
     })
 
   def discoveryState(currentState: ClusterState): ClusterState = {
