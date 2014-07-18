@@ -27,7 +27,7 @@ object Master {
             threadPool: ThreadPool, clusterService: ClusterService, transportService: TransportService) =
     Props(classOf[Master], localNode, votingMembers, version, threadPool, clusterService, transportService)
 
-  private val MasterDiscoveryDrainInterval = Duration(100, TimeUnit.MILLISECONDS)
+  private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
   private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
   private val ReconnectInterval = Duration(5, TimeUnit.SECONDS)
 
