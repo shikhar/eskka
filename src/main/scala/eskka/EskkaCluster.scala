@@ -18,6 +18,8 @@ import org.elasticsearch.common.settings.Settings
 import org.elasticsearch.common.unit.TimeValue
 import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.discovery.{ DiscoverySettings, InitialStateDiscoveryListener }
+import org.elasticsearch.threadpool.ThreadPool
+import org.elasticsearch.transport.TransportService
 
 import scala.collection.JavaConversions._
 import scala.concurrent._
@@ -33,8 +35,10 @@ class EskkaCluster(clusterName: ClusterName,
                    version: Version,
                    settings: Settings,
                    discoverySettings: DiscoverySettings,
+                   threadPool: ThreadPool,
                    networkService: NetworkService,
                    clusterService: ClusterService,
+                   transportService: TransportService,
                    localNode: DiscoveryNode,
                    initialStateListeners: Seq[InitialStateDiscoveryListener],
                    restartHook: () => Unit) {
@@ -68,7 +72,7 @@ class EskkaCluster(clusterName: ClusterName,
 
       val csm = if (cluster.selfRoles.contains(Roles.MasterEligible)) {
         Some(system.actorOf(singleton.ClusterSingletonManager.props(
-          singletonProps = Master.props(localNode, votingMembers, version, clusterService),
+          singletonProps = Master.props(localNode, votingMembers, version, threadPool, clusterService, transportService),
           singletonName = ActorNames.Master,
           terminationMessage = PoisonPill,
           role = Some(Roles.MasterEligible)), name = ActorNames.CSM))
@@ -101,26 +105,15 @@ class EskkaCluster(clusterName: ClusterName,
 
     val nonMasterNodes = clusterState.nodes.size - 1
 
-    val (publishResponseHandler, fullyAckedFuture) =
+    val publishResponseHandler =
       if (nonMasterNodes > 0) {
-        implicit val timeout = if (publishTimeoutMs > 0) Timeout(publishTimeoutMs, TimeUnit.MILLISECONDS) else PublishTimeoutHard
-        val handler = system.actorOf(Props(classOf[PublishResponseHandler], nonMasterNodes, ackListener, timeout))
-        (handler, handler ? PublishResponseHandler.SubscribeFullyAcked)
+        val timeout = if (publishTimeoutMs > 0) Timeout(publishTimeoutMs, TimeUnit.MILLISECONDS) else PublishTimeoutHard
+        system.actorOf(Props(classOf[PublishResponseHandler], nonMasterNodes, ackListener, timeout))
       } else {
-        (Actor.noSender, Future.successful(PublishResponseHandler.FullyAcked))
+        Actor.noSender
       }
 
     system.actorSelection(s"/user/${ActorNames.CSM}/${ActorNames.Master}").tell(Master.PublishReq(clusterState), publishResponseHandler)
-
-    if (publishTimeoutMs > 0) {
-      try {
-        Await.ready(fullyAckedFuture, Duration(publishTimeoutMs, TimeUnit.MILLISECONDS))
-      } catch {
-        case e: TimeoutException =>
-          logger.warn("timed out ({}) waiting for all nodes to acknowledge cluster state version {}",
-            discoverySettings.getPublishTimeout, clusterState.version.asInstanceOf[Object])
-      }
-    }
   }
 
   def leave(context: String): Future[_] = {

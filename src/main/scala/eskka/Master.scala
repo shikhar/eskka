@@ -2,60 +2,82 @@ package eskka
 
 import java.util.concurrent.TimeUnit
 
+import org.elasticsearch.common.collect.ImmutableOpenMap
+
+import scala.collection.immutable
+import concurrent.{ Promise, Future }
+import scala.concurrent.duration.Duration
+import scala.util.{ Failure, Success }
+
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
 import akka.pattern.ask
 import akka.util.Timeout
+
 import org.elasticsearch.Version
+import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
-import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
 import org.elasticsearch.discovery.Discovery
-
-import scala.collection.immutable
-import scala.concurrent.Future
-import scala.concurrent.duration.Duration
-import scala.util.{ Failure, Success }
+import org.elasticsearch.threadpool.ThreadPool
+import org.elasticsearch.transport.{ TransportConnectionListener, TransportService }
 
 object Master {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService) =
-    Props(classOf[Master], localNode, votingMembers, version, clusterService)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version,
+            threadPool: ThreadPool, clusterService: ClusterService, transportService: TransportService) =
+    Props(classOf[Master], localNode, votingMembers, version, threadPool, clusterService, transportService)
 
   private val MasterDiscoveryDrainInterval = Duration(100, TimeUnit.MILLISECONDS)
   private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
+  private val ReconnectInterval = Duration(5, TimeUnit.SECONDS)
 
   private case object DrainQueuedDiscoverySubmits
 
-  private case class EnqueueDiscoverySubmit(info: String)
+  private case class DiscoverySubmit(key: String, info: String)
 
   private case class RetryAddFollower(node: Address)
+
+  private sealed trait TransportEvent {
+    def node: DiscoveryNode
+  }
+
+  private case class TransportConnected(node: DiscoveryNode) extends TransportEvent
+
+  private case class TransportDisconnected(node: DiscoveryNode) extends TransportEvent
+
+  private case class Connect(node: DiscoveryNode, isReconnect: Boolean = false)
 
   case class PublishReq(clusterState: ClusterState)
 
 }
 
-class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version, clusterService: ClusterService)
-  extends Actor with ActorLogging {
+class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version,
+             threadPool: ThreadPool, clusterService: ClusterService, transportService: TransportService)
+  extends Actor with ActorLogging with TransportConnectionListener {
 
   import Master._
   import context.dispatcher
 
-  val cluster = Cluster(context.system)
+  private val cluster = Cluster(context.system)
 
-  val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
+  private val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
 
-  var discoveredNodes = Map[Address, Future[Follower.IAmRsp]]()
+  private var discoveredNodes = Map[Address, Future[Follower.IAmRsp]]()
 
-  var pendingDiscoverySubmits = immutable.Queue[String]()
+  private var pendingDiscoverySubmits = immutable.Queue[DiscoverySubmit]()
+
+  private var submitCounter = 0
 
   override def preStart() {
     log.debug("Master actor starting up on node [{}]", localNode)
     cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent])
+    transportService.addConnectionListener(this)
   }
 
   override def postStop() {
+    transportService.removeConnectionListener(this)
     cluster.unsubscribe(self)
     drainage.cancel()
     log.debug("Master actor stopped on node [{}]", localNode)
@@ -65,7 +87,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
 
     case PublishReq(clusterState) =>
       val publishSender = sender()
-      val currentRemoteFollowers = remoteFollowers
+      val currentRemoteFollowers = remoteFollowers(clusterState.nodes.nodes)
       if (currentRemoteFollowers.nonEmpty) {
         val requiredEsVersions = currentRemoteFollowers.map(_.node.version).toSet
         Future {
@@ -86,8 +108,18 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
 
     case DrainQueuedDiscoverySubmits =>
       if (pendingDiscoverySubmits.nonEmpty) {
-        val summary = pendingDiscoverySubmits.mkString("[", " :: ", "]")
-        val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master-$summary", Priority.IMMEDIATE, discoveryState)
+
+        submitCounter += 1
+
+        val submitRef = submitCounter.toString
+
+        val summary = (for {
+          (key, submits) <- pendingDiscoverySubmits.toSet.groupBy { submit: DiscoverySubmit => submit.key }
+          infos = submits.map(_.info).mkString(",")
+        } yield s"$infos($key})")
+          .mkString("[", " :: ", "]")
+
+        val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master-$submitRef-$summary", Priority.IMMEDIATE, discoveryState)
         submission onComplete {
           res =>
             res match {
@@ -95,10 +127,11 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
                 log.debug("drain discovery submits -- successful -- {}", summary)
               case Failure(e) =>
                 log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
-                context.system.scheduler.scheduleOnce(MasterDiscoveryDrainInterval, self, EnqueueDiscoverySubmit("retry"))
+                context.system.scheduler.scheduleOnce(MasterDiscoveryDrainInterval, self, DiscoverySubmit(submitRef, "retry"))
             }
             localFollower.foreach(_.ref ! Follower.LocalMasterPublishNotif(res))
         }
+
         pendingDiscoverySubmits = immutable.Queue()
       }
 
@@ -108,37 +141,75 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
         addFollower(m.address)
 
       case ClusterEvent.MemberExited(m) =>
-        if (discoveredNodes.contains(m.address)) {
+        if (discoveredNodes contains m.address) {
           discoveredNodes -= m.address
-          self ! EnqueueDiscoverySubmit(s"exited(${m.address})")
+          self ! DiscoverySubmit(m.address.hostPort, "exited")
         }
 
       case ClusterEvent.MemberRemoved(m, _) =>
-        if (discoveredNodes.contains(m.address)) {
+        if (discoveredNodes contains m.address) {
           discoveredNodes -= m.address
-          self ! EnqueueDiscoverySubmit(s"removed(${m.address})")
+          self ! DiscoverySubmit(m.address.hostPort, "removed")
         }
 
     }
+
+    case tEvent: TransportEvent => tEvent match {
+
+      case TransportConnected(node) =>
+        membersByDiscoveryNode.get(node).foreach(address => {
+          self ! DiscoverySubmit(address.hostPort, "connected")
+        })
+
+      case TransportDisconnected(node) =>
+        membersByDiscoveryNode.get(node).foreach(address => {
+          self ! DiscoverySubmit(address.hostPort, "disconnected")
+          self ! Connect(node, isReconnect = true)
+        })
+
+    }
+
+    case Connect(node, isReconnect) =>
+      membersByDiscoveryNode.get(node).foreach(address => {
+        asyncConnectToNode(node) onFailure {
+          case error =>
+            if (!isReconnect) {
+              log.error(error, "failed to connect to {} ({})", node, address)
+            } else {
+              log.debug("failed to reconnect to {} ({}) due to {}", node, address, error.getMessage)
+            }
+            context.system.scheduler.scheduleOnce(ReconnectInterval, self, Connect(node, isReconnect = true))
+        }
+      })
 
     case RetryAddFollower(node) =>
       if (discoveredNodes contains node) {
         addFollower(node)
       }
 
-    case EnqueueDiscoverySubmit(info) =>
-      pendingDiscoverySubmits = pendingDiscoverySubmits enqueue info
+    case submit: DiscoverySubmit =>
+      pendingDiscoverySubmits = pendingDiscoverySubmits enqueue submit
 
   }
 
-  def addFollower(node: Address) {
+  def addFollower(address: Address) {
     implicit val timeout = WhoYouTimeout
-    val future = (context.actorSelection(RootActorPath(node) / "user" / ActorNames.Follower) ? Follower.WhoYouReq).mapTo[Follower.IAmRsp]
-    discoveredNodes += (node -> future)
+    val future = (context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower) ? Follower.WhoYouReq).mapTo[Follower.IAmRsp]
+    discoveredNodes += (address -> future)
     future onComplete {
-      case Success(_) => self ! EnqueueDiscoverySubmit(s"identified($node)")
-      case Failure(_) => context.system.scheduler.scheduleOnce(WhoYouTimeout.duration, self, RetryAddFollower(node))
+      case Success(rsp) =>
+        self ! Connect(rsp.node)
+        self ! DiscoverySubmit(address.hostPort, "identified")
+      case Failure(_) =>
+        context.system.scheduler.scheduleOnce(WhoYouTimeout.duration, self, RetryAddFollower(address))
     }
+  }
+
+  def membersByDiscoveryNode: Map[DiscoveryNode, Address] = {
+    for {
+      (address, iAmFuture) <- discoveredNodes
+      Success(iam) <- iAmFuture.value
+    } yield (iam.node, address)
   }
 
   def localFollower: Option[Follower.IAmRsp] =
@@ -146,9 +217,9 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
       case Success(iam) => iam
     })
 
-  def remoteFollowers: Iterable[Follower.IAmRsp] =
+  def remoteFollowers(nodes: ImmutableOpenMap[String, DiscoveryNode]): Iterable[Follower.IAmRsp] =
     discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
-      case Success(iam) => iam
+      case Success(iam) if nodes.containsKey(iam.node.id) => iam
     })
 
   def discoveryState(currentState: ClusterState): ClusterState = {
@@ -162,10 +233,34 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
     for {
       iAmFuture <- discoveredNodes.values
       Success(iam) <- iAmFuture.value
+      if transportService.nodeConnected(iam.node)
     } {
       builder.put(iam.node)
     }
     builder
+  }
+
+  def asyncConnectToNode(node: DiscoveryNode): Future[DiscoveryNode] = {
+    val p = Promise[DiscoveryNode]()
+    threadPool.generic().execute(new Runnable {
+      override def run() {
+        try {
+          transportService.connectToNode(node)
+          p.success(node)
+        } catch {
+          case t: Throwable => p.failure(t)
+        }
+      }
+    })
+    p.future
+  }
+
+  override def onNodeConnected(node: DiscoveryNode) {
+    self ! TransportConnected(node)
+  }
+
+  override def onNodeDisconnected(node: DiscoveryNode) {
+    self ! TransportDisconnected(node)
   }
 
 }
