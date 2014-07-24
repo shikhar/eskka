@@ -4,12 +4,10 @@ import akka.actor._
 import akka.cluster.Cluster
 import akka.pattern.pipe
 import org.elasticsearch.Version
-import org.elasticsearch.cluster.metadata.MetaData
 import org.elasticsearch.cluster.node.DiscoveryNode
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
 
-import scala.collection.JavaConversions._
 import scala.concurrent.{ Future, Promise }
 import scala.util.{ Failure, Success, Try }
 
