@@ -18,7 +18,6 @@ import org.elasticsearch.common.unit.TimeValue
 import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.discovery.{ DiscoverySettings, InitialStateDiscoveryListener }
 import org.elasticsearch.threadpool.ThreadPool
-import org.elasticsearch.transport.TransportService
 
 import scala.collection.JavaConversions._
 import scala.concurrent._
@@ -36,7 +35,6 @@ class EskkaCluster(clusterName: ClusterName,
                    threadPool: ThreadPool,
                    networkService: NetworkService,
                    clusterService: ClusterService,
-                   transportService: TransportService,
                    localNode: DiscoveryNode,
                    initialStateListeners: Seq[InitialStateDiscoveryListener],
                    restartHook: () => Unit) {
@@ -70,7 +68,7 @@ class EskkaCluster(clusterName: ClusterName,
 
       val csm = if (cluster.selfRoles.contains(Roles.MasterEligible)) {
         Some(system.actorOf(singleton.ClusterSingletonManager.props(
-          singletonProps = Master.props(localNode, votingMembers, threadPool, clusterService, transportService),
+          singletonProps = Master.props(localNode, votingMembers, threadPool, clusterService),
           singletonName = ActorNames.Master,
           terminationMessage = PoisonPill,
           role = Some(Roles.MasterEligible)), name = ActorNames.CSM))

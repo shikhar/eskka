@@ -12,22 +12,19 @@ import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
 import org.elasticsearch.discovery.Discovery
 import org.elasticsearch.threadpool.ThreadPool
-import org.elasticsearch.transport.{ TransportConnectionListener, TransportService }
 
-import concurrent.{ Future, Promise }
+import concurrent.Future
 import scala.collection.immutable
 import scala.concurrent.duration.Duration
 import scala.util.{ Failure, Success }
 
 object Master {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers,
-            threadPool: ThreadPool, clusterService: ClusterService, transportService: TransportService) =
-    Props(classOf[Master], localNode, votingMembers, threadPool, clusterService, transportService)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool: ThreadPool, clusterService: ClusterService) =
+    Props(classOf[Master], localNode, votingMembers, threadPool, clusterService)
 
   private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
   private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
-  private val ReconnectInterval = Duration(5, TimeUnit.SECONDS)
 
   private case object DrainQueuedDiscoverySubmits
 
@@ -35,23 +32,12 @@ object Master {
 
   private case class RetryAddFollower(node: Address)
 
-  private sealed trait TransportEvent {
-    def node: DiscoveryNode
-  }
-
-  private case class TransportConnected(node: DiscoveryNode) extends TransportEvent
-
-  private case class TransportDisconnected(node: DiscoveryNode) extends TransportEvent
-
-  private case class Connect(node: DiscoveryNode, isReconnect: Boolean = false)
-
   case class PublishReq(clusterState: ClusterState)
 
 }
 
-class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
-             threadPool: ThreadPool, clusterService: ClusterService, transportService: TransportService)
-  extends Actor with ActorLogging with TransportConnectionListener {
+class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool: ThreadPool, clusterService: ClusterService)
+  extends Actor with ActorLogging {
 
   import Master._
   import context.dispatcher
@@ -69,11 +55,9 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
   override def preStart() {
     log.debug("Master actor starting up on node [{}]", localNode)
     cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent])
-    transportService.addConnectionListener(this)
   }
 
   override def postStop() {
-    transportService.removeConnectionListener(this)
     cluster.unsubscribe(self)
     drainage.cancel()
     log.debug("Master actor stopped on node [{}]", localNode)
@@ -147,34 +131,6 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
 
     }
 
-    case tEvent: TransportEvent => tEvent match {
-
-      case TransportConnected(node) =>
-        membersByDiscoveryNode.get(node).foreach(address => {
-          self ! DiscoverySubmit(address.hostPort, "connected")
-        })
-
-      case TransportDisconnected(node) =>
-        membersByDiscoveryNode.get(node).foreach(address => {
-          self ! DiscoverySubmit(address.hostPort, "disconnected")
-          self ! Connect(node, isReconnect = true)
-        })
-
-    }
-
-    case Connect(node, isReconnect) =>
-      membersByDiscoveryNode.get(node).foreach(address => {
-        asyncConnectToNode(node) onFailure {
-          case error =>
-            if (!isReconnect) {
-              log.error(error, "failed to connect to {} ({})", node, address)
-            } else {
-              log.debug("failed to reconnect to {} ({}) due to {}", node, address, error.getMessage)
-            }
-            context.system.scheduler.scheduleOnce(ReconnectInterval, self, Connect(node, isReconnect = true))
-        }
-      })
-
     case RetryAddFollower(node) =>
       if (discoveredNodes contains node) {
         addFollower(node)
@@ -191,18 +147,10 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
     discoveredNodes += (address -> future)
     future onComplete {
       case Success(rsp) =>
-        self ! Connect(rsp.node)
         self ! DiscoverySubmit(address.hostPort, "identified")
       case Failure(_) =>
         context.system.scheduler.scheduleOnce(WhoYouTimeout.duration, self, RetryAddFollower(address))
     }
-  }
-
-  def membersByDiscoveryNode: Map[DiscoveryNode, Address] = {
-    for {
-      (address, iAmFuture) <- discoveredNodes
-      Success(iam) <- iAmFuture.value
-    } yield (iam.node, address)
   }
 
   def localFollower: Option[Follower.IAmRsp] =
@@ -226,34 +174,10 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
     for {
       iAmFuture <- discoveredNodes.values
       Success(iam) <- iAmFuture.value
-      if transportService.nodeConnected(iam.node)
     } {
       builder.put(iam.node)
     }
     builder
-  }
-
-  def asyncConnectToNode(node: DiscoveryNode): Future[DiscoveryNode] = {
-    val p = Promise[DiscoveryNode]()
-    threadPool.generic().execute(new Runnable {
-      override def run() {
-        try {
-          transportService.connectToNode(node)
-          p.success(node)
-        } catch {
-          case t: Throwable => p.failure(t)
-        }
-      }
-    })
-    p.future
-  }
-
-  override def onNodeConnected(node: DiscoveryNode) {
-    self ! TransportConnected(node)
-  }
-
-  override def onNodeDisconnected(node: DiscoveryNode) {
-    self ! TransportDisconnected(node)
   }
 
 }
