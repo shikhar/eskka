@@ -12,7 +12,7 @@ object Build extends sbt.Build {
     settings = Defaults.defaultSettings
   ).settings(
       organization := "eskka",
-      scalaVersion := "2.11.1",
+      scalaVersion := "2.11.2",
       version := "0.8.0-SNAPSHOT",
       scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
     ).settings(
