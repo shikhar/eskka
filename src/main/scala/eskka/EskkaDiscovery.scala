@@ -15,7 +15,7 @@ import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySettings, InitialStateDiscoveryListener }
 import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.threadpool.ThreadPool
-import org.elasticsearch.transport.{ TransportService, Transport }
+import org.elasticsearch.transport.{ Transport, TransportService }
 import org.elasticsearch.{ ElasticsearchIllegalStateException, Version }
 
 import concurrent.{ Await, TimeoutException }
@@ -143,7 +143,7 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
   }
 
   private def makeEskkaCluster(initial: Boolean): EskkaCluster = {
-    new EskkaCluster(clusterName, version, settings, discoverySettings, threadPool, networkService, clusterService, transportService, localNode,
+    new EskkaCluster(clusterName, settings, discoverySettings, threadPool, networkService, clusterService, transportService, localNode,
       if (initial) initialStateListeners.toSeq else Seq(), { () =>
         threadPool.generic().execute(new Runnable {
           override def run() {

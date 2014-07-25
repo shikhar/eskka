@@ -2,30 +2,28 @@ package eskka
 
 import java.util.concurrent.TimeUnit
 
-import scala.collection.immutable
-import concurrent.{ Promise, Future }
-import scala.concurrent.duration.Duration
-import scala.util.{ Failure, Success }
-
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
 import akka.pattern.ask
 import akka.util.Timeout
-
-import org.elasticsearch.Version
-import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
+import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
 import org.elasticsearch.discovery.Discovery
 import org.elasticsearch.threadpool.ThreadPool
 import org.elasticsearch.transport.{ TransportConnectionListener, TransportService }
 
+import concurrent.{ Future, Promise }
+import scala.collection.immutable
+import scala.concurrent.duration.Duration
+import scala.util.{ Failure, Success }
+
 object Master {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version,
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers,
             threadPool: ThreadPool, clusterService: ClusterService, transportService: TransportService) =
-    Props(classOf[Master], localNode, votingMembers, version, threadPool, clusterService, transportService)
+    Props(classOf[Master], localNode, votingMembers, threadPool, clusterService, transportService)
 
   private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
   private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
@@ -51,7 +49,7 @@ object Master {
 
 }
 
-class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Version,
+class Master(localNode: DiscoveryNode, votingMembers: VotingMembers,
              threadPool: ThreadPool, clusterService: ClusterService, transportService: TransportService)
   extends Actor with ActorLogging with TransportConnectionListener {
 
@@ -87,22 +85,16 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, version: Ve
       val publishSender = sender()
       val currentRemoteFollowers = remoteFollowers.filter(iam => clusterState.nodes.nodes.containsKey(iam.node.id))
       if (currentRemoteFollowers.nonEmpty) {
-        val requiredEsVersions = currentRemoteFollowers.map(_.node.version).toSet
         Future {
-          requiredEsVersions.map(v => v -> ClusterStateSerialization.toBytes(v, clusterState)).toMap
+          ClusterStateSerialization.toBytes(clusterState)
         } onComplete {
-          case Success(serializedStates) =>
+          case Success(serializedState) =>
             val followerAddresses = currentRemoteFollowers.map(_.ref.path.address.hostPort)
-            val sizeInfo = serializedStates.map({
-              case (ver, data) => s"$ver:${data.length}b"
-            }).mkString(",")
-            log.info("publishing cluster state version [{}] serialized as [{}] to [{}]", clusterState.version, sizeInfo, followerAddresses.mkString(","))
-            for (follower <- currentRemoteFollowers) {
-              val followerEsVersion = follower.node.version
-              follower.ref.tell(Follower.PublishReq(followerEsVersion, serializedStates(followerEsVersion)), publishSender)
-            }
+            log.info("publishing cluster state version [{}] serialized size [{}b] to [{}]",
+              clusterState.version, serializedState.length, followerAddresses.mkString(","))
+            currentRemoteFollowers.foreach(_.ref.tell(Follower.PublishReq(serializedState), publishSender))
           case Failure(error) =>
-            log.error(error, "failed to serialize cluster state version {} for elasticsearch versions {}", clusterState.version, requiredEsVersions)
+            log.error(error, "failed to serialize cluster state version {}", clusterState.version)
             publishSender ! PublishAck(localNode, Some(error))
         }
       }

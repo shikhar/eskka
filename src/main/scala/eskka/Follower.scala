@@ -3,7 +3,7 @@ package eskka
 import akka.actor._
 import akka.cluster.Cluster
 import akka.pattern.pipe
-import org.elasticsearch.Version
+import akka.util.ByteString
 import org.elasticsearch.cluster.node.DiscoveryNode
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
@@ -18,7 +18,7 @@ object Follower {
 
   case object CheckInitSub
 
-  case class PublishReq(esVersion: Version, serializedClusterState: Array[Byte])
+  case class PublishReq(serializedClusterState: ByteString)
 
   case class LocalMasterPublishNotif(transition: Try[ClusterStateTransition])
 
@@ -49,11 +49,11 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
       log.debug("received local master publish notification")
       firstSubmit.tryComplete(transition)
 
-    case PublishReq(esVersion, serializedClusterState) =>
+    case PublishReq(serializedClusterState) =>
       val publishSender = sender()
 
       Future {
-        ClusterStateSerialization.fromBytes(esVersion, serializedClusterState, localNode)
+        ClusterStateSerialization.fromBytes(serializedClusterState, localNode)
       } onComplete {
 
         case Success(updatedState) =>

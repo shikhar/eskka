@@ -9,7 +9,6 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.google.common.collect.ImmutableList
 import com.typesafe.config.ConfigFactory
-import org.elasticsearch.Version
 import org.elasticsearch.cluster.node.DiscoveryNode
 import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
 import org.elasticsearch.common.logging.Loggers
@@ -32,7 +31,6 @@ object EskkaCluster {
 }
 
 class EskkaCluster(clusterName: ClusterName,
-                   version: Version,
                    settings: Settings,
                    discoverySettings: DiscoverySettings,
                    threadPool: ThreadPool,
@@ -72,7 +70,7 @@ class EskkaCluster(clusterName: ClusterName,
 
       val csm = if (cluster.selfRoles.contains(Roles.MasterEligible)) {
         Some(system.actorOf(singleton.ClusterSingletonManager.props(
-          singletonProps = Master.props(localNode, votingMembers, version, threadPool, clusterService, transportService),
+          singletonProps = Master.props(localNode, votingMembers, threadPool, clusterService, transportService),
           singletonName = ActorNames.Master,
           terminationMessage = PoisonPill,
           role = Some(Roles.MasterEligible)), name = ActorNames.CSM))
