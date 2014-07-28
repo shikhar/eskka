@@ -99,10 +99,10 @@ class EskkaCluster(clusterName: ClusterName,
   def publish(clusterState: ClusterState, ackListener: AckListener) {
     val publishTimeoutMs = discoverySettings.getPublishTimeout.millis
 
-    val nonMasterNodes = clusterState.nodes.size - 1
+    val nonMasterNodes = Set() ++ clusterState.nodes - localNode
 
     val publishResponseHandler =
-      if (nonMasterNodes > 0) {
+      if (nonMasterNodes.nonEmpty) {
         val timeout = if (publishTimeoutMs > 0) Timeout(publishTimeoutMs, TimeUnit.MILLISECONDS) else PublishTimeoutHard
         system.actorOf(Props(classOf[PublishResponseHandler], nonMasterNodes, ackListener, timeout))
       } else {

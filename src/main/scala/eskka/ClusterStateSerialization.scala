@@ -15,7 +15,7 @@ object ClusterStateSerialization {
     val out = compressor.streamOutput(new OutputStreamStreamOutput(bsb.asOutputStream))
     ClusterState.Builder.writeTo(clusterState, out)
     out.close()
-    bsb.result().compact
+    bsb.result()
   }
 
   def fromBytes(bytes: ByteString, localNode: DiscoveryNode): ClusterState = {

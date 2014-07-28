@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
 import akka.pattern.ask
-import akka.util.Timeout
+import akka.util.{ ByteString, Timeout }
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
@@ -26,11 +26,15 @@ object Master {
   private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
   private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
 
+  private val MaxPublishChunkSize = 16384
+
   private case object DrainQueuedDiscoverySubmits
 
   private case class DiscoverySubmit(key: String, info: String)
 
   private case class RetryAddFollower(node: Address)
+
+  private case class Transmit(clusterState: ClusterState, chunks: IndexedSeq[ByteString], refs: Iterable[ActorRef])
 
   case class PublishReq(clusterState: ClusterState)
 
@@ -46,7 +50,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
 
   private val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
 
-  private var discoveredNodes = Map[Address, Future[Follower.IAmRsp]]()
+  private var discoveredNodes = Map[Address, Future[Follower.MasterAck]]()
 
   private var pendingDiscoverySubmits = immutable.Queue[DiscoverySubmit]()
 
@@ -70,17 +74,23 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
       val currentRemoteFollowers = remoteFollowers.filter(iam => clusterState.nodes.nodes.containsKey(iam.node.id))
       if (currentRemoteFollowers.nonEmpty) {
         Future {
-          ClusterStateSerialization.toBytes(clusterState)
+          ClusterStateSerialization.toBytes(clusterState).grouped(MaxPublishChunkSize).toIndexedSeq
         } onComplete {
-          case Success(serializedState) =>
-            val followerAddresses = currentRemoteFollowers.map(_.ref.path.address.hostPort)
-            log.info("publishing cluster state version [{}] serialized size [{}b] to [{}]",
-              clusterState.version, serializedState.length, followerAddresses.mkString(","))
-            currentRemoteFollowers.foreach(_.ref.tell(Follower.PublishReq(serializedState), publishSender))
+          case Success(chunks) =>
+            self.tell(Transmit(clusterState, chunks, currentRemoteFollowers.map(_.ref)), publishSender)
           case Failure(error) =>
             log.error(error, "failed to serialize cluster state version {}", clusterState.version)
             publishSender ! PublishAck(localNode, Some(error))
         }
+      }
+
+    case Transmit(clusterState, chunks, refs) =>
+      val dataLen = chunks.foldLeft(0)(_ + _.length)
+      val numChunks = chunks.length
+      val addresses = refs.map(_.path.address.hostPort)
+      log.info("publishing cluster state version [{}] serialized as [{}b/{}] to [{}]", clusterState.version, dataLen, numChunks, addresses.mkString(","))
+      for (chunkSeq <- 0 until numChunks) {
+        refs.foreach(_.forward(Follower.PublishReqChunk(clusterState.version, numChunks, chunkSeq, chunks(chunkSeq).compact)))
       }
 
     case DrainQueuedDiscoverySubmits =>
@@ -143,7 +153,8 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
 
   def addFollower(address: Address) {
     implicit val timeout = WhoYouTimeout
-    val future = (context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower) ? Follower.WhoYouReq).mapTo[Follower.IAmRsp]
+    val future = (context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower)
+      ? Follower.AnnounceMaster(cluster.selfAddress)).mapTo[Follower.MasterAck]
     discoveredNodes += (address -> future)
     future onComplete {
       case Success(rsp) =>
@@ -153,12 +164,12 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
     }
   }
 
-  def localFollower: Option[Follower.IAmRsp] =
+  def localFollower: Option[Follower.MasterAck] =
     discoveredNodes.get(cluster.selfAddress).flatMap(_.value.collect {
       case Success(iam) => iam
     })
 
-  def remoteFollowers: Iterable[Follower.IAmRsp] =
+  def remoteFollowers: Iterable[Follower.MasterAck] =
     discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
       case Success(iam) => iam
     })
