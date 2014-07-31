@@ -7,6 +7,7 @@
         <option name="compilerLibraryName" value="SBT:: scala-compiler-bundle:2.11.2" />
         <option name="compilerOptions" value="-feature -encoding utf8" />
         <option name="deprecationWarnings" value="true" />
+        <option name="languageLevel" value="Scala 2.11" />
         <option name="uncheckedWarnings" value="true" />
       </configuration>
     </facet>
