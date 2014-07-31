@@ -79,7 +79,7 @@ class EskkaCluster(clusterName: ClusterName,
       system.actorOf(QuorumLossAbdicator.props(localNode, votingMembers, clusterService, killSeq, restartHook), "abdicator")
 
       if (initialStateListeners.nonEmpty) {
-        import scala.concurrent.ExecutionContext.Implicits.global
+        import system.dispatcher
         implicit val timeout = Timeout(discoverySettings.getPublishTimeout.getMillis, TimeUnit.MILLISECONDS)
         (follower ? Follower.CheckInitSub) onComplete {
           case Success(info) =>
@@ -180,7 +180,7 @@ class EskkaCluster(clusterName: ClusterName,
 
     logger.debug("creating actor system with eskka config {}", eskkaConfig)
 
-    ActorSystem(name, config = eskkaConfig.withFallback(ConfigFactory.load()))
+    ActorSystem(name, config = Some(eskkaConfig.withFallback(ConfigFactory.load())))
   }
 
   private def partitionEvalDelay =
