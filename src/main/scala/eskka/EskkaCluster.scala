@@ -7,7 +7,6 @@ import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
 import akka.pattern.ask
 import akka.util.Timeout
-import com.google.common.collect.ImmutableList
 import com.typesafe.config.ConfigFactory
 import org.elasticsearch.cluster.node.DiscoveryNode
 import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
@@ -19,7 +18,7 @@ import org.elasticsearch.discovery.Discovery.AckListener
 import org.elasticsearch.discovery.{ DiscoverySettings, InitialStateDiscoveryListener }
 import org.elasticsearch.threadpool.ThreadPool
 
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
 import scala.concurrent._
 import scala.concurrent.duration.Duration
 import scala.util.{ Failure, Success }
@@ -99,7 +98,7 @@ class EskkaCluster(clusterName: ClusterName,
   def publish(clusterState: ClusterState, ackListener: AckListener) {
     val publishTimeoutMs = discoverySettings.getPublishTimeout.millis
 
-    val nonMasterNodes = Set() ++ clusterState.nodes - localNode
+    val nonMasterNodes = (Set() ++ clusterState.nodes.asScala) - localNode
 
     val publishResponseHandler =
       if (nonMasterNodes.nonEmpty) {
@@ -153,14 +152,14 @@ class EskkaCluster(clusterName: ClusterName,
 
     val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
 
-    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(bindHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort")
-    val seedNodeAddresses = ImmutableList.copyOf(seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort"))
+    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(bindHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort").toSeq
+    val seedNodeAddresses = seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort")
 
     val roles = Seq(
       if (isMasterNode) Some(Roles.MasterEligible) else None,
       if (seedNodes.contains(s"$bindHost:$bindPort")) Some(Roles.Voter) else None).flatten
 
-    val quorumOfVoters = new Integer((seedNodes.size / 2) + 1)
+    val quorumOfVoters = (seedNodes.size / 2) + 1
 
     val heartbeatInterval =
       Duration(eskkaSettings.getAsTime("heartbeat_interval", TimeValue.timeValueSeconds(1)).millis(), TimeUnit.MILLISECONDS)
@@ -172,11 +171,11 @@ class EskkaCluster(clusterName: ClusterName,
       "akka.daemonic" -> "on",
       "akka.remote.netty.tcp.hostname" -> bindHost,
       "akka.remote.netty.tcp.port" -> bindPort,
-      "akka.cluster.seed-nodes" -> seedNodeAddresses,
-      "akka.cluster.roles" -> ImmutableList.copyOf(roles.iterator),
-      s"akka.cluster.role.${Roles.Voter}.min-nr-of-members" -> quorumOfVoters,
+      "akka.cluster.seed-nodes" -> seedNodeAddresses.asJava,
+      "akka.cluster.roles" -> roles.asJava,
+      s"akka.cluster.role.${Roles.Voter}.min-nr-of-members" -> new Integer(quorumOfVoters),
       "akka.cluster.failure-detector.heartbeat-interval" -> s"${heartbeatInterval.toMillis} ms",
-      "akka.cluster.failure-detector.acceptable-heartbeat-pause" -> s"${acceptableHeartbeatPause.toMillis} ms"))
+      "akka.cluster.failure-detector.acceptable-heartbeat-pause" -> s"${acceptableHeartbeatPause.toMillis} ms").asJava)
 
     logger.debug("creating actor system with eskka config {}", eskkaConfig)
 

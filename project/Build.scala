@@ -38,11 +38,7 @@ object Build extends sbt.Build {
         "org.elasticsearch" % "elasticsearch" % v.elasticsearch % "provided",
 
         "com.typesafe.akka" %% "akka-actor" % v.akka,
-        "com.typesafe.akka" %% "akka-cluster" % v.akka,
-
-        "com.google.guava" % "guava" % v.guava,
-
-        "com.typesafe.akka" %% "akka-multi-node-testkit" % v.akka % "test"
+        "com.typesafe.akka" %% "akka-cluster" % v.akka
 
       )
     )
@@ -66,7 +62,6 @@ object Build extends sbt.Build {
   object v {
     val elasticsearch = "1.3.0"
     val akka = "2.3.4"
-    val guava = "16.0.1"
   }
 
 }
