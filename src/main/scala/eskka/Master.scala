@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit
 import akka.actor._
 import akka.cluster.{ Cluster, ClusterEvent }
 import akka.pattern.ask
-import akka.util.{ ByteString, Timeout }
+import akka.util.Timeout
 import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
@@ -13,10 +13,10 @@ import org.elasticsearch.common.Priority
 import org.elasticsearch.discovery.Discovery
 import org.elasticsearch.threadpool.ThreadPool
 
+import collection.immutable
 import concurrent.Future
-import scala.collection.immutable
 import scala.concurrent.duration.Duration
-import scala.util.{ Failure, Success }
+import util.{ Failure, Success, Try }
 
 object Master {
 
@@ -33,8 +33,6 @@ object Master {
   private case class DiscoverySubmit(key: String, info: String)
 
   private case class RetryAddFollower(node: Address)
-
-  private case class Transmit(clusterState: ClusterState, chunks: IndexedSeq[ByteString], refs: Iterable[ActorRef])
 
   case class PublishReq(clusterState: ClusterState)
 
@@ -73,24 +71,29 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
       val publishSender = sender()
       val currentRemoteFollowers = remoteFollowers.filter(iam => clusterState.nodes.nodes.containsKey(iam.node.id))
       if (currentRemoteFollowers.nonEmpty) {
-        Future {
-          ClusterStateSerialization.toBytes(clusterState).grouped(MaxPublishChunkSize).toIndexedSeq
-        } onComplete {
-          case Success(chunks) =>
-            self.tell(Transmit(clusterState, chunks, currentRemoteFollowers.map(_.ref)), publishSender)
+        Try(ClusterStateSerialization.toBytes(clusterState)) match {
+
+          case Success(serializedState) =>
+
+            val chunks = serializedState.grouped(MaxPublishChunkSize).toIndexedSeq
+            val numChunks = chunks.length
+
+            val followerRefs = currentRemoteFollowers.map(_.ref)
+            val followerAddresses = followerRefs.map(_.path.address.hostPort)
+
+            log.info("publishing cluster state version [{}] serialized as [{}b/{}] to [{}]",
+              clusterState.version, serializedState.length, numChunks, followerAddresses.mkString(","))
+            for {
+              chunkSeq <- 0 until numChunks
+              publishReqChunk = Follower.PublishReqChunk(clusterState.version, numChunks, chunkSeq, chunks(chunkSeq).compact)
+              ref <- followerRefs
+            } ref.tell(publishReqChunk, publishSender)
+
           case Failure(error) =>
             log.error(error, "failed to serialize cluster state version {}", clusterState.version)
             publishSender ! PublishAck(localNode, Some(error))
-        }
-      }
 
-    case Transmit(clusterState, chunks, refs) =>
-      val dataLen = chunks.foldLeft(0)(_ + _.length)
-      val numChunks = chunks.length
-      val addresses = refs.map(_.path.address.hostPort)
-      log.info("publishing cluster state version [{}] serialized as [{}b/{}] to [{}]", clusterState.version, dataLen, numChunks, addresses.mkString(","))
-      for (chunkSeq <- 0 until numChunks) {
-        refs.foreach(_.forward(Follower.PublishReqChunk(clusterState.version, numChunks, chunkSeq, chunks(chunkSeq).compact)))
+        }
       }
 
     case DrainQueuedDiscoverySubmits =>

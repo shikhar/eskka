@@ -8,7 +8,7 @@ import org.elasticsearch.cluster.node.DiscoveryNode
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
 
-import scala.concurrent.{ Future, Promise }
+import scala.concurrent.Promise
 import scala.util.{ Failure, Success, Try }
 
 object Follower {
@@ -25,6 +25,8 @@ object Follower {
   case class MasterAck(ref: ActorRef, node: DiscoveryNode)
 
   case class PublishReqChunk(version: Long, numChunks: Int, chunkSeq: Int, data: ByteString)
+
+  case class InvalidClusterStateException(msg: String) extends Exception(msg)
 
   private case class PublishReq(sender: ActorRef, version: Long, totalChunks: Int, receivedChunks: Int, data: ByteString)
 
@@ -92,17 +94,12 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
     case PublishReq(sender, version, totalChunks, receivedChunks, data) =>
       assume(totalChunks == receivedChunks)
 
-      Future {
-        val cs = ClusterStateSerialization.fromBytes(data, localNode)
-        require(version == cs.version)
-        cs
-      } onComplete {
-
+      Try(ClusterStateSerialization.fromBytes(data, localNode)) match {
         case Success(updatedState) =>
           updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
 
           log.info("submitting publish of cluster state version {} ({}b/{})...", version, data.length, totalChunks)
-          SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, _ => updatedState) onComplete {
+          SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, clusterStateUpdater(updatedState)) onComplete {
             res =>
               res match {
                 case Success(transition) =>
@@ -116,11 +113,18 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
           }
 
         case Failure(error) =>
-          log.error(error, "failed to deserialize cluster state received from {}", sender)
+          log.error(error, "failed to submit cluster state version {}", version)
           sender ! PublishAck(localNode, Some(error))
-
       }
 
+  }
+
+  private def clusterStateUpdater(updatedState: ClusterState)(prevState: ClusterState) = {
+    if (prevState.version >= updatedState.version) {
+      throw new InvalidClusterStateException(
+        s"new cluster state version [${updatedState.version()}] is older than current cluster state version [${prevState.version}}]")
+    }
+    updatedState
   }
 
 }
