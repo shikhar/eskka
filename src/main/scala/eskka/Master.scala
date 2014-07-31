@@ -154,7 +154,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
   def addFollower(address: Address) {
     implicit val timeout = WhoYouTimeout
     val future = (context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower)
-      ? Follower.AnnounceMaster(cluster.selfAddress)).mapTo[Follower.MasterAck]
+      ? Follower.AnnounceMaster(cluster.selfAddress, localNode)).mapTo[Follower.MasterAck]
     discoveredNodes += (address -> future)
     future onComplete {
       case Success(rsp) =>

@@ -20,7 +20,7 @@ object Follower {
 
   case class LocalMasterPublishNotif(transition: Try[ClusterStateTransition])
 
-  case class AnnounceMaster(address: Address)
+  case class AnnounceMaster(address: Address, node: DiscoveryNode)
 
   case class MasterAck(ref: ActorRef, node: DiscoveryNode)
 
@@ -39,7 +39,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
 
   val firstSubmit = Promise[ClusterStateTransition]()
 
-  var currentMaster: Option[Address] = None
+  var currentMaster: Option[AnnounceMaster] = None
 
   private var activePublish: Option[PublishReq] = None
 
@@ -48,15 +48,16 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
     case CheckInitSub =>
       firstSubmit.future pipeTo sender()
 
-    case AnnounceMaster(address) =>
-      currentMaster = Some(address)
+    case am @ AnnounceMaster(address, node) =>
+      log.info("master announced [{}]", am)
+      currentMaster = Some(am)
       sender() ! MasterAck(self, localNode)
 
     case LocalMasterPublishNotif(transition) =>
       log.debug("received local master publish notification")
       firstSubmit.tryComplete(transition)
 
-    case PublishReqChunk(version, totalChunks, chunkSeq, data) if currentMaster.contains(sender().path.address) =>
+    case PublishReqChunk(version, totalChunks, chunkSeq, data) if currentMaster.exists(_.address == sender().path.address) =>
       log.debug("received chunk {} of {} for cluster state version {}", chunkSeq + 1, totalChunks, version)
 
       if (chunkSeq == 0) {
