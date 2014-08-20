@@ -78,7 +78,7 @@ three hosts are `n1.xyz.com`, `n2.xyz.com` and `n3.xyz.com`. since we are using 
 *on n1*
 
 ```
-discovery.type: eskka
+discovery.type: eskka.EskkaDiscoveryModule
 
 discovery.eskka.host: n1.xyz.com
 
@@ -88,7 +88,7 @@ discovery.eskka.seed_nodes: ["n1.xyz.com", "n2.xyz.com", "n3.xyz.com"]
 *on n2*
 
 ```
-discovery.type: eskka
+discovery.type: eskka.EskkaDiscoveryModule
 
 discovery.eskka.host: n2.xyz.com
 
@@ -99,7 +99,7 @@ discovery.eskka.seed_nodes: ["n1.xyz.com", "n2.xyz.com", "n3.xyz.com"]
 *on n3*
 
 ```
-discovery.type: eskka
+discovery.type: eskka.EskkaDiscoveryModule
 
 discovery.eskka.host: n3.xyz.com
 
@@ -114,7 +114,7 @@ addresses are `n1.xyz.com:9401`, `n2.xyz.com:9402` and `n3.xyz.com:9403`.
 *on n1*
 
 ```
-discovery.type: eskka
+discovery.type: eskka.EskkaDiscoveryModule
 
 discovery.eskka.host: n1.xyz.com
 
@@ -126,7 +126,7 @@ discovery.eskka.seed_nodes: ["n1.xyz.com:9401", "n2.xyz.com:9402", "n3.xyz.com:9
 *on n2*
 
 ```
-discovery.type: eskka
+discovery.type: eskka.EskkaDiscoveryModule
 
 discovery.eskka.host: n2.xyz.com
 
@@ -138,7 +138,7 @@ discovery.eskka.seed_nodes: ["n1.xyz.com:9401", "n2.xyz.com:9402", "n3.xyz.com:9
 *on n3*
 
 ```
-discovery.type: eskka
+discovery.type: eskka.EskkaDiscoveryModule
 
 discovery.eskka.host: n3.xyz.com
 
