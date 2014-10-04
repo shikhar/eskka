@@ -58,7 +58,7 @@ class EskkaCluster(clusterName: ClusterName,
 
       val pinger = system.actorOf(Pinger.props, ActorNames.Pinger)
 
-      val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService), ActorNames.Follower)
+      val follower = system.actorOf(Follower.props(clusterName, localNode, votingMembers, clusterService), ActorNames.Follower)
 
       val partitionMonitor = if (cluster.selfRoles(Roles.Voter)) {
         Some(system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, partitionEvalDelay, partitionPingTimeout), "partition-monitor"))

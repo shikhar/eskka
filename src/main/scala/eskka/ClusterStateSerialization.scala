@@ -18,9 +18,9 @@ object ClusterStateSerialization {
     bsb.result()
   }
 
-  def fromBytes(bytes: ByteString, localNode: DiscoveryNode): ClusterState = {
+  def fromBytes(bytes: ByteString, localNode: DiscoveryNode, clusterName: ClusterName): ClusterState = {
     val in = compressor.streamInput(new InputStreamStreamInput(bytes.iterator.asInputStream))
-    ClusterState.Builder.readFrom(in, localNode, ClusterName.DEFAULT)
+    ClusterState.Builder.readFrom(in, localNode, clusterName)
   }
 
 }

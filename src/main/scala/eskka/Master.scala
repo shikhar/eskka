@@ -55,14 +55,14 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
   private var submitCounter = 0
 
   override def preStart() {
-    log.debug("Master actor starting up on node [{}]", localNode)
+    log.info("Master actor starting up on node [{}]", localNode)
     cluster.subscribe(self, ClusterEvent.InitialStateAsEvents, classOf[ClusterEvent.MemberEvent])
   }
 
   override def postStop() {
     cluster.unsubscribe(self)
     drainage.cancel()
-    log.debug("Master actor stopped on node [{}]", localNode)
+    log.info("Master actor stopped on node [{}]", localNode)
   }
 
   override def receive = {

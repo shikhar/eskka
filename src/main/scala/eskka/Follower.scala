@@ -5,7 +5,7 @@ import akka.cluster.Cluster
 import akka.pattern.pipe
 import akka.util.ByteString
 import org.elasticsearch.cluster.node.DiscoveryNode
-import org.elasticsearch.cluster.{ ClusterService, ClusterState }
+import org.elasticsearch.cluster.{ClusterName, ClusterService, ClusterState}
 import org.elasticsearch.common.Priority
 
 import scala.concurrent.Promise
@@ -13,8 +13,8 @@ import scala.util.{ Failure, Success, Try }
 
 object Follower {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
-    Props(classOf[Follower], localNode, votingMembers, clusterService)
+  def props(clusterName: ClusterName, localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
+    Props(classOf[Follower], clusterName, localNode, votingMembers, clusterService)
 
   case object CheckInitSub
 
@@ -32,7 +32,10 @@ object Follower {
 
 }
 
-class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) extends Actor with ActorLogging {
+class Follower(clusterName: ClusterName,
+               localNode: DiscoveryNode,
+               votingMembers: VotingMembers,
+               clusterService: ClusterService) extends Actor with ActorLogging {
 
   import Follower._
   import context.dispatcher
@@ -94,7 +97,7 @@ class Follower(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterSe
     case PublishReq(sender, version, totalChunks, receivedChunks, data) =>
       assume(totalChunks == receivedChunks)
 
-      Try(ClusterStateSerialization.fromBytes(data, localNode)) match {
+      Try(ClusterStateSerialization.fromBytes(data, localNode, clusterName)) match {
         case Success(updatedState) =>
           updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
 
