@@ -5,7 +5,7 @@ import akka.cluster.Cluster
 import akka.pattern.pipe
 import akka.util.ByteString
 import org.elasticsearch.cluster.node.DiscoveryNode
-import org.elasticsearch.cluster.{ClusterName, ClusterService, ClusterState}
+import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
 
 import scala.concurrent.Promise
