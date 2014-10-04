@@ -13,7 +13,7 @@ object Build extends sbt.Build {
   ).settings(
       organization := "eskka",
       scalaVersion := "2.11.2",
-      version := "0.9.0",
+      version := "0.9.1",
       scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
     ).settings(
       scalariformSettings ++ Seq(
