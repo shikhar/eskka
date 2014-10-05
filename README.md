@@ -12,7 +12,7 @@ There is no master election per-se, it is [deterministically the 'oldest'](http:
 
 ## installation
 
-Head to [Releases](https://github.com/shikhar/eskka/releases) on github.
+Head to [Releases](https://github.com/shikhar/eskka/releases) on github. Be sure to check the Elaticsearch version compatibility note for each release.
 
 ### pre-packaged
 
