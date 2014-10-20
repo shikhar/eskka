@@ -103,7 +103,7 @@ class EskkaCluster(clusterName: ClusterName,
     val publishResponseHandler =
       if (nonMasterNodes.nonEmpty) {
         val timeout = if (publishTimeoutMs > 0) Timeout(publishTimeoutMs, TimeUnit.MILLISECONDS) else PublishTimeoutHard
-        system.actorOf(Props(classOf[PublishResponseHandler], nonMasterNodes, ackListener, timeout))
+        system.actorOf(PublishResponseHandler.props(nonMasterNodes, threadPool, ackListener, timeout))
       } else {
         Actor.noSender
       }
