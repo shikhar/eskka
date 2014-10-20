@@ -67,7 +67,7 @@ class EskkaCluster(clusterName: ClusterName,
 
       val csm = if (cluster.selfRoles.contains(Roles.MasterEligible)) {
         Some(system.actorOf(singleton.ClusterSingletonManager.props(
-          singletonProps = Master.props(localNode, votingMembers, threadPool, clusterService),
+          singletonProps = Master.props(localNode, votingMembers, clusterService),
           singletonName = ActorNames.Master,
           terminationMessage = PoisonPill,
           role = Some(Roles.MasterEligible)), name = ActorNames.CSM))

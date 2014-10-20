@@ -20,8 +20,8 @@ import util.{ Failure, Success, Try }
 
 object Master {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool: ThreadPool, clusterService: ClusterService) =
-    Props(classOf[Master], localNode, votingMembers, threadPool, clusterService)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
+    Props(classOf[Master], localNode, votingMembers, clusterService)
 
   private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
   private val FollowerMasterAckTimeout = Timeout(500, TimeUnit.MILLISECONDS)
@@ -38,7 +38,7 @@ object Master {
 
 }
 
-class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool: ThreadPool, clusterService: ClusterService)
+class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService)
   extends Actor with ActorLogging {
 
   import Master._
