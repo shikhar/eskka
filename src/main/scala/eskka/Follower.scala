@@ -18,7 +18,7 @@ object Follower {
 
   case object CheckInitSub
 
-  case class LocalMasterPublishNotif(transition: Try[ClusterStateTransition])
+  case class LocalMasterDiscoverySubmitNotif(transition: Try[ClusterStateTransition])
 
   case class AnnounceMaster(address: Address, node: DiscoveryNode)
 
@@ -58,7 +58,7 @@ class Follower(clusterName: ClusterName,
       currentMaster = Some(am)
       sender() ! MasterAck(self, localNode)
 
-    case LocalMasterPublishNotif(transition) =>
+    case LocalMasterDiscoverySubmitNotif(transition) =>
       log.debug("received local master publish notification")
       firstSubmit.tryComplete(transition)
 

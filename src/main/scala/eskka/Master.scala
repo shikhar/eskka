@@ -24,7 +24,7 @@ object Master {
     Props(classOf[Master], localNode, votingMembers, threadPool, clusterService)
 
   private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
-  private val WhoYouTimeout = Timeout(500, TimeUnit.MILLISECONDS)
+  private val FollowerMasterAckTimeout = Timeout(500, TimeUnit.MILLISECONDS)
 
   private val MaxPublishChunkSize = 16384
 
@@ -48,6 +48,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
 
   private val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
 
+  // The keys represent addresses of all cluster members that are currently UP, and the values our current attempt at getting a MasterAck from them.
   private var discoveredNodes = Map[Address, Future[Follower.MasterAck]]()
 
   private var pendingDiscoverySubmits = immutable.Queue[DiscoverySubmit]()
@@ -119,7 +120,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
                 log.error(e, "drain discovery submits -- failure, will retry -- {}", summary)
                 context.system.scheduler.scheduleOnce(MasterDiscoveryDrainInterval, self, DiscoverySubmit(submitRef, "retry"))
             }
-            localFollower.foreach(_.ref ! Follower.LocalMasterPublishNotif(res))
+            localFollower.foreach(_.ref ! Follower.LocalMasterDiscoverySubmitNotif(res))
         }
 
         pendingDiscoverySubmits = immutable.Queue()
@@ -155,7 +156,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
   }
 
   def addFollower(address: Address) {
-    implicit val timeout = WhoYouTimeout
+    implicit val timeout = FollowerMasterAckTimeout
     val future = (context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower)
       ? Follower.AnnounceMaster(cluster.selfAddress, localNode)).mapTo[Follower.MasterAck]
     discoveredNodes += (address -> future)
@@ -163,7 +164,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, threadPool:
       case Success(rsp) =>
         self ! DiscoverySubmit(address.hostPort, "identified")
       case Failure(_) =>
-        context.system.scheduler.scheduleOnce(WhoYouTimeout.duration, self, RetryAddFollower(address))
+        context.system.scheduler.scheduleOnce(FollowerMasterAckTimeout.duration, self, RetryAddFollower(address))
     }
   }
 
