@@ -70,7 +70,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
     case PublishReq(clusterState) =>
       val publishSender = sender()
-      val currentRemoteFollowers = remoteFollowers.filter(iam => clusterState.nodes.nodes.containsKey(iam.node.id))
+      val currentRemoteFollowers = remoteFollowers.filter(ack => clusterState.nodes.nodes.containsKey(ack.node.id))
       if (currentRemoteFollowers.nonEmpty) {
         Try(ClusterStateSerialization.toBytes(clusterState)) match {
 
@@ -170,12 +170,12 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
   def localFollower: Option[Follower.MasterAck] =
     discoveredNodes.get(cluster.selfAddress).flatMap(_.value.collect {
-      case Success(iam) => iam
+      case Success(ack) => ack
     })
 
   def remoteFollowers: Iterable[Follower.MasterAck] =
     discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
-      case Success(iam) => iam
+      case Success(ack) => ack
     })
 
   def discoveryState(currentState: ClusterState): ClusterState = {
@@ -188,9 +188,9 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
   def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
     for {
       iAmFuture <- discoveredNodes.values
-      Success(iam) <- iAmFuture.value
+      Success(ack) <- iAmFuture.value
     } {
-      builder.put(iam.node)
+      builder.put(ack.node)
     }
     builder
   }
