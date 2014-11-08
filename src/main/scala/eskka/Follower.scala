@@ -1,34 +1,33 @@
 package eskka
 
 import akka.actor._
-import akka.cluster.Cluster
 import akka.pattern.pipe
 import akka.util.ByteString
 import org.elasticsearch.cluster.node.DiscoveryNode
-import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
+import org.elasticsearch.cluster.{ClusterName, ClusterService, ClusterState}
 import org.elasticsearch.common.Priority
 
 import scala.concurrent.Promise
-import scala.util.{ Failure, Success, Try }
+import scala.util.{Failure, Success, Try}
 
 object Follower {
 
   def props(clusterName: ClusterName, localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
     Props(classOf[Follower], clusterName, localNode, votingMembers, clusterService)
 
-  case object CheckInitSub
-
   case class LocalMasterDiscoverySubmitNotif(transition: Try[ClusterStateTransition])
 
-  case class AnnounceMaster(address: Address, node: DiscoveryNode)
+  case class AnnounceMaster(address: Address)
 
-  case class MasterAck(ref: ActorRef, node: DiscoveryNode)
+  case class MasterAck(ref: ActorRef, node: ByteString)
 
   case class PublishReqChunk(version: Long, numChunks: Int, chunkSeq: Int, data: ByteString)
 
   case class InvalidClusterStateException(msg: String) extends Exception(msg)
 
   private case class PublishReq(sender: ActorRef, version: Long, totalChunks: Int, receivedChunks: Int, data: ByteString)
+
+  case object CheckInitSub
 
 }
 
@@ -37,14 +36,14 @@ class Follower(clusterName: ClusterName,
                votingMembers: VotingMembers,
                clusterService: ClusterService) extends Actor with ActorLogging {
 
-  import Follower._
   import context.dispatcher
+  import eskka.Follower._
 
-  val cluster = Cluster(context.system)
+  private val serializedLocalNode = DiscoveryNodeSerialization.toBytes(localNode).compact
 
-  val firstSubmit = Promise[ClusterStateTransition]()
+  private val firstSubmit = Promise[ClusterStateTransition]()
 
-  var currentMaster: Option[AnnounceMaster] = None
+  private var currentMaster: Option[AnnounceMaster] = None
 
   private var activePublish: Option[PublishReq] = None
 
@@ -53,10 +52,10 @@ class Follower(clusterName: ClusterName,
     case CheckInitSub =>
       firstSubmit.future pipeTo sender()
 
-    case am @ AnnounceMaster(address, node) =>
+    case am@AnnounceMaster(address) =>
       log.info("master announced [{}]", am)
       currentMaster = Some(am)
-      sender() ! MasterAck(self, localNode)
+      sender() ! MasterAck(self, serializedLocalNode)
 
     case LocalMasterDiscoverySubmitNotif(transition) =>
       log.debug("received local master publish notification")
@@ -76,11 +75,11 @@ class Follower(clusterName: ClusterName,
             if (sender() == acc.sender && version == acc.version && totalChunks == acc.totalChunks && chunkSeq == acc.receivedChunks) {
               Some(acc.copy(receivedChunks = acc.receivedChunks + 1, data = acc.data ++ data))
             } else {
-              sender() ! PublishAck(localNode, Some(new IllegalStateException("Invalid publish chunk")))
+              sender() ! PublishAck(serializedLocalNode, Some(new IllegalStateException("Invalid publish chunk")))
               None
             }
           case None =>
-            sender() ! PublishAck(localNode, Some(new IllegalStateException("Invalid publish chunk")))
+            sender() ! PublishAck(serializedLocalNode, Some(new IllegalStateException("Invalid publish chunk")))
             None
         }
 
@@ -102,22 +101,23 @@ class Follower(clusterName: ClusterName,
           updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
 
           log.info("submitting publish of cluster state version {} ({}b/{})...", version, data.length, totalChunks)
-          SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT, clusterStateUpdater(updatedState)) onComplete {
+          SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT,
+            runOnlyOnMaster = false, clusterStateUpdater(updatedState)) onComplete {
             res =>
               res match {
                 case Success(transition) =>
                   log.debug("successfully submitted cluster state version {}", version)
-                  sender ! PublishAck(localNode, None)
+                  sender ! PublishAck(serializedLocalNode, None)
                 case Failure(error) =>
                   log.error(error, "failed to submit cluster state version {}", version)
-                  sender ! PublishAck(localNode, Some(error))
+                  sender ! PublishAck(serializedLocalNode, Some(error))
               }
               firstSubmit.tryComplete(res)
           }
 
         case Failure(error) =>
           log.error(error, "failed to submit cluster state version {}", version)
-          sender ! PublishAck(localNode, Some(error))
+          sender ! PublishAck(serializedLocalNode, Some(error))
       }
 
   }

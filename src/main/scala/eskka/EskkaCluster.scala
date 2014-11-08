@@ -75,7 +75,7 @@ class EskkaCluster(clusterName: ClusterName,
         None
 
       val killSeq = Seq(pinger, follower) ++ Seq(partitionMonitor, csm).flatten
-      system.actorOf(QuorumLossAbdicator.props(localNode, votingMembers, clusterService, killSeq, restartHook), "abdicator")
+      system.actorOf(QuorumLossAbdicator.props(localNode, votingMembers, discoverySettings, clusterService, killSeq, restartHook), "abdicator")
 
       if (initialStateListeners.nonEmpty) {
         import system.dispatcher

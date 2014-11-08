@@ -10,9 +10,12 @@ object SubmitClusterStateUpdate {
   def apply(clusterService: ClusterService,
             source: String,
             priority: Priority,
+            runOnlyOnMaster: Boolean,
             update: ClusterState => ClusterState) = {
     val promise = Promise[ClusterStateTransition]()
     clusterService.submitStateUpdateTask(source, priority, new ProcessedClusterStateUpdateTask {
+
+      override def runOnlyOnMaster = false
 
       override def execute(currentState: ClusterState): ClusterState = update(currentState)
 

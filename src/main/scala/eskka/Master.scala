@@ -10,46 +10,48 @@ import org.elasticsearch.cluster.block.ClusterBlocks
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
-import org.elasticsearch.discovery.Discovery
-import org.elasticsearch.threadpool.ThreadPool
+import org.elasticsearch.discovery.DiscoverySettings
 
-import collection.immutable
-import concurrent.Future
+import scala.collection.immutable
+import scala.concurrent.Future
 import scala.concurrent.duration.Duration
-import util.{ Failure, Success, Try }
+import scala.util.{ Failure, Success, Try }
 
 object Master {
+
+  private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
+  private val FollowerMasterAckTimeout = Timeout(500, TimeUnit.MILLISECONDS)
+  private val MaxPublishChunkSize = 16384
 
   def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
     Props(classOf[Master], localNode, votingMembers, clusterService)
 
-  private val MasterDiscoveryDrainInterval = Duration(1, TimeUnit.SECONDS)
-  private val FollowerMasterAckTimeout = Timeout(500, TimeUnit.MILLISECONDS)
-
-  private val MaxPublishChunkSize = 16384
-
-  private case object DrainQueuedDiscoverySubmits
+  case class PublishReq(clusterState: ClusterState)
 
   private case class DiscoverySubmit(key: String, info: String)
 
   private case class RetryAddFollower(node: Address)
 
-  case class PublishReq(clusterState: ClusterState)
+  private case class FollowerInfo(ref: ActorRef, node: DiscoveryNode)
+
+  private case object DrainQueuedDiscoverySubmits
 
 }
 
 class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService)
   extends Actor with ActorLogging {
 
-  import Master._
   import context.dispatcher
+  import eskka.Master._
+
+  private val serializedLocalNode = DiscoveryNodeSerialization.toBytes(localNode).compact
 
   private val cluster = Cluster(context.system)
 
   private val drainage = context.system.scheduler.schedule(MasterDiscoveryDrainInterval, MasterDiscoveryDrainInterval, self, DrainQueuedDiscoverySubmits)
 
-  // The keys represent addresses of all cluster members that are currently UP, and the values our current attempt at getting a MasterAck from them.
-  private var discoveredNodes = Map[Address, Future[Follower.MasterAck]]()
+  // The keys represent addresses of all cluster members that are currently UP, and the values our current attempt at getting FollowerInfo from them
+  private var discoveredNodes = Map[Address, Future[FollowerInfo]]()
 
   private var pendingDiscoverySubmits = immutable.Queue[DiscoverySubmit]()
 
@@ -70,7 +72,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
     case PublishReq(clusterState) =>
       val publishSender = sender()
-      val currentRemoteFollowers = remoteFollowers.filter(ack => clusterState.nodes.nodes.containsKey(ack.node.id))
+      val currentRemoteFollowers = remoteFollowers.filter(followerInfo => clusterState.nodes.nodes.containsKey(followerInfo.node.id))
       if (currentRemoteFollowers.nonEmpty) {
         Try(ClusterStateSerialization.toBytes(clusterState)) match {
 
@@ -92,7 +94,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
           case Failure(error) =>
             log.error(error, "failed to serialize cluster state version {}", clusterState.version)
-            publishSender ! PublishAck(localNode, Some(error))
+            publishSender ! PublishAck(serializedLocalNode, Some(error))
 
         }
       }
@@ -110,7 +112,8 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
         } yield s"$infos($key})")
           .mkString("[", " :: ", "]")
 
-        val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master-$submitRef-$summary", Priority.IMMEDIATE, discoveryState)
+        val submission = SubmitClusterStateUpdate(clusterService, s"eskka-master-$submitRef-$summary", Priority.IMMEDIATE,
+          runOnlyOnMaster = true, discoveryState)
         submission onComplete {
           res =>
             res match {
@@ -155,12 +158,14 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
   }
 
-  def addFollower(address: Address) {
+  private def addFollower(address: Address) {
     implicit val timeout = FollowerMasterAckTimeout
-    val future = (context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower)
-      ? Follower.AnnounceMaster(cluster.selfAddress, localNode)).mapTo[Follower.MasterAck]
-    discoveredNodes += (address -> future)
-    future onComplete {
+    val followerInfoFuture = (context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower)
+      ? Follower.AnnounceMaster(cluster.selfAddress))
+      .mapTo[Follower.MasterAck]
+      .map(masterAck => FollowerInfo(masterAck.ref, DiscoveryNodeSerialization.fromBytes(masterAck.node)))
+    discoveredNodes += (address -> followerInfoFuture)
+    followerInfoFuture onComplete {
       case Success(rsp) =>
         self ! DiscoverySubmit(address.hostPort, "identified")
       case Failure(_) =>
@@ -168,29 +173,35 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
     }
   }
 
-  def localFollower: Option[Follower.MasterAck] =
+  private def localFollower: Option[FollowerInfo] =
     discoveredNodes.get(cluster.selfAddress).flatMap(_.value.collect {
-      case Success(ack) => ack
+      case Success(followerInfo) => followerInfo
     })
 
-  def remoteFollowers: Iterable[Follower.MasterAck] =
+  private def remoteFollowers: Iterable[FollowerInfo] =
     discoveredNodes.filterKeys(_ != cluster.selfAddress).values.flatMap(_.value.collect {
-      case Success(ack) => ack
+      case Success(followerInfo) => followerInfo
     })
 
-  def discoveryState(currentState: ClusterState): ClusterState = {
+  private def discoveryState(currentState: ClusterState): ClusterState = {
+    val nodes = addDiscoveredNodes(DiscoveryNodes.builder.put(localNode).localNodeId(localNode.id).masterNodeId(localNode.id))
+    val blocks = ClusterBlocks.builder
+      .blocks(currentState.blocks)
+      .removeGlobalBlock(DiscoverySettings.NO_MASTER_BLOCK_ALL)
+      .removeGlobalBlock(DiscoverySettings.NO_MASTER_BLOCK_WRITES)
+      .build
     ClusterState.builder(currentState)
-      .nodes(addDiscoveredNodes(DiscoveryNodes.builder.put(localNode).localNodeId(localNode.id).masterNodeId(localNode.id)))
-      .blocks(ClusterBlocks.builder.blocks(currentState.blocks).removeGlobalBlock(Discovery.NO_MASTER_BLOCK).build)
+      .nodes(nodes)
+      .blocks(blocks)
       .build
   }
 
-  def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
+  private def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
     for {
-      iAmFuture <- discoveredNodes.values
-      Success(ack) <- iAmFuture.value
+      followerInfoFuture <- discoveredNodes.values
+      Success(followerInfo) <- followerInfoFuture.value
     } {
-      builder.put(ack.node)
+      builder.put(followerInfo.node)
     }
     builder
   }

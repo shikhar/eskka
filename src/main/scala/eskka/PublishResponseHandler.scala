@@ -26,12 +26,13 @@ class PublishResponseHandler(acksExpected: Set[DiscoveryNode], threadPool: Threa
 
   override def receive = {
     case PublishAck(node, error) =>
+      val deserDiscoveryNode = DiscoveryNodeSerialization.fromBytes(node)
       threadPool.generic().execute(new Runnable {
-        override def run(): Unit = {
-          ackListener.onNodeAck(node, error.orNull)
+        override def run() {
+          ackListener.onNodeAck(deserDiscoveryNode, error.orNull)
         }
       })
-      pendingNodes -= node
+      pendingNodes -= deserDiscoveryNode
       if (pendingNodes.isEmpty) {
         context.stop(self)
       }

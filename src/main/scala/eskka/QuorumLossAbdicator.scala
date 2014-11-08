@@ -5,23 +5,25 @@ import java.util.concurrent.TimeUnit
 import akka.actor._
 import akka.cluster.{ Cluster, MemberStatus }
 import org.elasticsearch.cluster.block.ClusterBlocks
-import org.elasticsearch.cluster.metadata.MetaData
 import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodes }
-import org.elasticsearch.cluster.routing.RoutingTable
 import org.elasticsearch.cluster.{ ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
-import org.elasticsearch.discovery.Discovery
-import org.elasticsearch.gateway.GatewayService
+import org.elasticsearch.discovery.DiscoverySettings
 
 import scala.concurrent.duration.Duration
 import scala.util.{ Failure, Success }
 
 object QuorumLossAbdicator {
 
-  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService, killSeq: Seq[ActorRef], restartHook: () => Unit) =
-    Props(classOf[QuorumLossAbdicator], localNode, votingMembers, clusterService, killSeq, restartHook)
-
   private val CheckInterval = Duration(1, TimeUnit.SECONDS)
+
+  def props(localNode: DiscoveryNode,
+            votingMembers: VotingMembers,
+            discoverySettings: DiscoverySettings,
+            clusterService: ClusterService,
+            killSeq: Seq[ActorRef],
+            restartHook: () => Unit) =
+    Props(classOf[QuorumLossAbdicator], localNode, votingMembers, discoverySettings, clusterService, killSeq, restartHook)
 
   private case object Check
 
@@ -31,13 +33,14 @@ object QuorumLossAbdicator {
 
 class QuorumLossAbdicator(localNode: DiscoveryNode,
                           votingMembers: VotingMembers,
+                          discoverySettings: DiscoverySettings,
                           clusterService: ClusterService,
                           killSeq: Seq[ActorRef],
                           restartHook: () => Unit)
   extends Actor with ActorLogging {
 
-  import QuorumLossAbdicator._
   import context.dispatcher
+  import eskka.QuorumLossAbdicator._
 
   val cluster = Cluster(context.system)
 
@@ -63,7 +66,7 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
   def abdicate: Actor.Receive = {
     case Abdicate =>
       killSeq.foreach(context.stop)
-      SubmitClusterStateUpdate(clusterService, "eskka-quorum-loss-abdicator", Priority.URGENT, clearClusterState) onComplete {
+      SubmitClusterStateUpdate(clusterService, "eskka-quorum-loss-abdicator", Priority.URGENT, runOnlyOnMaster = false, abdicationClusterState) onComplete {
         case Success(_) =>
           log.debug("cleared cluster state, now invoking restart hook")
           restartHook()
@@ -73,16 +76,13 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
       }
   }
 
-  def clearClusterState(currentState: ClusterState) =
+  def abdicationClusterState(currentState: ClusterState) =
     ClusterState.builder(currentState)
       .blocks(
         ClusterBlocks.builder.blocks(currentState.blocks)
-          .addGlobalBlock(Discovery.NO_MASTER_BLOCK)
-          .addGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK)
+          .addGlobalBlock(discoverySettings.getNoMasterBlock)
           .build)
       .nodes(DiscoveryNodes.builder.put(localNode).localNodeId(localNode.id))
-      .routingTable(RoutingTable.builder)
-      .metaData(MetaData.builder)
       .build
 
 }
