@@ -3,7 +3,7 @@ package eskka
 import org.elasticsearch.cluster.{ ClusterService, ClusterState, ProcessedClusterStateUpdateTask }
 import org.elasticsearch.common.Priority
 
-import scala.concurrent.Promise
+import scala.concurrent.{ Future, Promise }
 
 object SubmitClusterStateUpdate {
 
@@ -11,7 +11,7 @@ object SubmitClusterStateUpdate {
             source: String,
             priority: Priority,
             runOnlyOnMaster: Boolean,
-            update: ClusterState => ClusterState) = {
+            update: ClusterState => ClusterState): Future[ClusterStateTransition] = {
     val promise = Promise[ClusterStateTransition]()
     clusterService.submitStateUpdateTask(source, priority, new ProcessedClusterStateUpdateTask {
 

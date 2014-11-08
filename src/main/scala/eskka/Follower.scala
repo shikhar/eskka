@@ -4,11 +4,11 @@ import akka.actor._
 import akka.pattern.pipe
 import akka.util.ByteString
 import org.elasticsearch.cluster.node.DiscoveryNode
-import org.elasticsearch.cluster.{ClusterName, ClusterService, ClusterState}
+import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
 import org.elasticsearch.common.Priority
 
 import scala.concurrent.Promise
-import scala.util.{Failure, Success, Try}
+import scala.util.{ Failure, Success, Try }
 
 object Follower {
 
@@ -47,12 +47,12 @@ class Follower(clusterName: ClusterName,
 
   private var activePublish: Option[PublishReq] = None
 
-  override def receive = {
+  override def receive: Actor.Receive = {
 
     case CheckInitSub =>
       firstSubmit.future pipeTo sender()
 
-    case am@AnnounceMaster(address) =>
+    case am @ AnnounceMaster(address) =>
       log.info("master announced [{}]", am)
       currentMaster = Some(am)
       sender() ! MasterAck(self, serializedLocalNode)
@@ -103,17 +103,17 @@ class Follower(clusterName: ClusterName,
           log.info("submitting publish of cluster state version {} ({}b/{})...", version, data.length, totalChunks)
           SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT,
             runOnlyOnMaster = false, clusterStateUpdater(updatedState)) onComplete {
-            res =>
-              res match {
-                case Success(transition) =>
-                  log.debug("successfully submitted cluster state version {}", version)
-                  sender ! PublishAck(serializedLocalNode, None)
-                case Failure(error) =>
-                  log.error(error, "failed to submit cluster state version {}", version)
-                  sender ! PublishAck(serializedLocalNode, Some(error))
-              }
-              firstSubmit.tryComplete(res)
-          }
+              res =>
+                res match {
+                  case Success(transition) =>
+                    log.debug("successfully submitted cluster state version {}", version)
+                    sender ! PublishAck(serializedLocalNode, None)
+                  case Failure(error) =>
+                    log.error(error, "failed to submit cluster state version {}", version)
+                    sender ! PublishAck(serializedLocalNode, Some(error))
+                }
+                firstSubmit.tryComplete(res)
+            }
 
         case Failure(error) =>
           log.error(error, "failed to submit cluster state version {}", version)
@@ -122,7 +122,7 @@ class Follower(clusterName: ClusterName,
 
   }
 
-  private def clusterStateUpdater(updatedState: ClusterState)(prevState: ClusterState) = {
+  private def clusterStateUpdater(updatedState: ClusterState)(prevState: ClusterState): ClusterState = {
     if (prevState.version >= updatedState.version) {
       throw new InvalidClusterStateException(
         s"new cluster state version [${updatedState.version()}] is older than current cluster state version [${prevState.version}}]")

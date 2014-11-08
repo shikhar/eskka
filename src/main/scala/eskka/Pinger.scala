@@ -34,7 +34,7 @@ class Pinger extends Actor {
     pendingPings.values.foreach(_.cancel())
   }
 
-  override def receive = {
+  override def receive: Actor.Receive = {
 
     case req @ PingRequest(_, from, to, timeout) =>
       context.actorSelection(RootActorPath(to) / "user" / ActorNames.Pinger) ! Ping(req)

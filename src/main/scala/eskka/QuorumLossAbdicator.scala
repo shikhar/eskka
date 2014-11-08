@@ -50,7 +50,7 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
     abdicationCheck.cancel()
   }
 
-  override def receive = {
+  override def receive: Actor.Receive = {
     case Check =>
       val state = cluster.state
       val upVoters = state.members.filter(m => m.status == MemberStatus.up && votingMembers.addresses(m.address))
@@ -76,7 +76,7 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
       }
   }
 
-  def abdicationClusterState(currentState: ClusterState) =
+  def abdicationClusterState(currentState: ClusterState): ClusterState =
     ClusterState.builder(currentState)
       .blocks(
         ClusterBlocks.builder.blocks(currentState.blocks)

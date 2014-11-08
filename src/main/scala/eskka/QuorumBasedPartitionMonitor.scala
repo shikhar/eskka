@@ -150,7 +150,7 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
     log.debug("scheduled eval for [{}] in {} because [{}]", node, delay, reason)
   }
 
-  def pingResponseCollector(promises: Map[Address, Promise[Pinger.PingResponse]]) =
+  def pingResponseCollector(promises: Map[Address, Promise[Pinger.PingResponse]]): ActorRef =
     context.actorOf(Props(new Actor {
       override def receive = {
         case rsp: Pinger.PingResponse =>

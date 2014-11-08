@@ -24,7 +24,7 @@ class PublishResponseHandler(acksExpected: Set[DiscoveryNode], threadPool: Threa
 
   var pendingNodes = acksExpected
 
-  override def receive = {
+  override def receive: Actor.Receive = {
     case PublishAck(node, error) =>
       val deserDiscoveryNode = DiscoveryNodeSerialization.fromBytes(node)
       threadPool.generic().execute(new Runnable {

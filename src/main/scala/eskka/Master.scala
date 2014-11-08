@@ -68,7 +68,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
     log.info("Master actor stopped on node [{}]", localNode)
   }
 
-  override def receive = {
+  override def receive: Actor.Receive = {
 
     case PublishReq(clusterState) =>
       val publishSender = sender()
@@ -196,7 +196,7 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
       .build
   }
 
-  private def addDiscoveredNodes(builder: DiscoveryNodes.Builder) = {
+  private def addDiscoveredNodes(builder: DiscoveryNodes.Builder): DiscoveryNodes.Builder = {
     for {
       followerInfoFuture <- discoveredNodes.values
       Success(followerInfo) <- followerInfoFuture.value

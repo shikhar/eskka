@@ -12,7 +12,7 @@ class EskkaLogger extends Actor {
   private def logger(cls: Class[_]) =
     loggers.getOrElseUpdate(cls, ESLoggerFactory.getLogger(if (cls == classOf[DummyClassForStringSources]) "akka.dummy" else cls.getName))
 
-  override def receive = {
+  override def receive: Actor.Receive = {
 
     case InitializeLogger(_) =>
       sender() ! LoggerInitialized

@@ -134,7 +134,7 @@ class EskkaCluster(clusterName: ClusterName,
     system.awaitTermination(timeout.duration)
   }
 
-  private def makeActorSystem() = {
+  private def makeActorSystem(): ActorSystem = {
     val name = clusterName.value
     val nodeSettings = settings.getByPrefix("node.")
     val isClientNode = nodeSettings.getAsBoolean("client", false)
@@ -188,7 +188,7 @@ class EskkaCluster(clusterName: ClusterName,
   private def partitionPingTimeout =
     Duration(settings.getAsTime("discovery.eskka.partition.ping-timeout", TimeValue.timeValueSeconds(2)).millis(), TimeUnit.MILLISECONDS)
 
-  private def determineBindHost(x: String) = {
+  private def determineBindHost(x: String): String = {
     if ((x.startsWith("#") && x.endsWith("#")) || (x.startsWith("_") && x.endsWith("_")))
       networkService.resolveBindHostAddress(x).getHostAddress
     else
