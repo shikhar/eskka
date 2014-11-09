@@ -23,8 +23,6 @@ object Follower {
 
   case class PublishReqChunk(version: Long, numChunks: Int, chunkSeq: Int, data: ByteString)
 
-  case class InvalidClusterStateException(msg: String) extends Exception(msg)
-
   private case class PublishReq(sender: ActorRef, version: Long, totalChunks: Int, receivedChunks: Int, data: ByteString)
 
   case object CheckInitSub
@@ -102,7 +100,7 @@ class Follower(clusterName: ClusterName,
 
           log.info("submitting publish of cluster state version {} ({}b/{})...", version, data.length, totalChunks)
           SubmitClusterStateUpdate(clusterService, "follower{master-publish}", Priority.URGENT,
-            runOnlyOnMaster = false, clusterStateUpdater(updatedState)) onComplete {
+            runOnlyOnMaster = false, _ => updatedState) onComplete {
               res =>
                 res match {
                   case Success(transition) =>
@@ -120,14 +118,6 @@ class Follower(clusterName: ClusterName,
           sender ! PublishAck(serializedLocalNode, Some(error))
       }
 
-  }
-
-  private def clusterStateUpdater(updatedState: ClusterState)(prevState: ClusterState): ClusterState = {
-    if (prevState.version >= updatedState.version) {
-      throw new InvalidClusterStateException(
-        s"new cluster state version [${updatedState.version()}] is older than current cluster state version [${prevState.version}}]")
-    }
-    updatedState
   }
 
 }
