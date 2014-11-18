@@ -27,9 +27,6 @@
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.antlr:antlr-runtime:3.5" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.ow2.asm:asm:4.1" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.ow2.asm:asm-commons:4.1" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.3.6" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.3.6" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.3.6" level="project" />
     <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.11.4" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-analyzers-common:4.10.2" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-core:4.10.2" level="project" />
@@ -44,5 +41,8 @@
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-spatial:4.10.2" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-suggest:4.10.2" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.elasticsearch:elasticsearch:1.4.0" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.3.7" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.3.7" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.3.7" level="project" />
   </component>
 </module>
