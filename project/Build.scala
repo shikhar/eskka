@@ -60,8 +60,8 @@ object Build extends sbt.Build {
   }
 
   object v {
-    val elasticsearch = "1.4.1"
-    val akka = "2.3.7"
+    val elasticsearch = "1.4.2"
+    val akka = "2.3.8"
   }
 
 }
