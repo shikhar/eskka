@@ -12,7 +12,7 @@ object Build extends sbt.Build {
     settings = Defaults.defaultSettings
   ).settings(
       organization := "eskka",
-      scalaVersion := "2.11.4",
+      scalaVersion := "2.11.5",
       version := "0.13.0-SNAPSHOT",
       scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8")
     ).settings(
@@ -60,8 +60,8 @@ object Build extends sbt.Build {
   }
 
   object v {
-    val elasticsearch = "1.4.2"
-    val akka = "2.3.8"
+    val elasticsearch = "1.4.4"
+    val akka = "2.3.9"
   }
 
 }
