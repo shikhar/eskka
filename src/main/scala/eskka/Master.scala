@@ -160,8 +160,8 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
   private def addFollower(address: Address) {
     implicit val timeout = FollowerMasterAckTimeout
-    val followerInfoFuture = (context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower)
-      ? Follower.AnnounceMaster(cluster.selfAddress))
+    val followerSelection = context.actorSelection(RootActorPath(address) / "user" / ActorNames.Follower)
+    val followerInfoFuture = (followerSelection ? Follower.AnnounceMaster(cluster.selfAddress))
       .mapTo[Follower.MasterAck]
       .map(masterAck => FollowerInfo(masterAck.ref, DiscoveryNodeSerialization.fromBytes(masterAck.node)))
     discoveredNodes += (address -> followerInfoFuture)

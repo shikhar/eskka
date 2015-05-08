@@ -52,9 +52,9 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
 
   override def receive: Actor.Receive = {
     case Check =>
-      val state = cluster.state
-      val upVoters = state.members.filter(m => m.status == MemberStatus.up && votingMembers.addresses(m.address))
-      val availableVoters = upVoters.filterNot(state.unreachable)
+      val akkaClusterState = cluster.state
+      val upVoters = akkaClusterState.members.filter(m => m.status == MemberStatus.up && votingMembers.addresses(m.address))
+      val availableVoters = upVoters.filterNot(akkaClusterState.unreachable)
       if (availableVoters.size < votingMembers.quorumSize) {
         log.warning("abdicating -- quorum unavailable {}", (votingMembers.addresses -- availableVoters.map(_.address)).mkString("[", ",", "]"))
         abdicationCheck.cancel()
