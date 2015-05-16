@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2009-2014 Typesafe Inc. <http://www.typesafe.com>
+ * Copyright (C) 2009-2015 Typesafe Inc. <http://www.typesafe.com>
  */
 
 package eskka.singleton
@@ -7,7 +7,9 @@ package eskka.singleton
 import scala.concurrent.duration._
 import scala.collection.immutable
 import akka.actor.Actor
+import akka.actor.Actor.Receive
 import akka.actor.Deploy
+import akka.actor.ActorLogging
 import akka.actor.ActorRef
 import akka.actor.ActorSelection
 import akka.actor.Address
@@ -143,7 +145,7 @@ object ClusterSingletonManager {
       /**
        * The first event, corresponding to CurrentClusterState.
        */
-      final case class InitialOldestState(oldest: Option[Address], memberCount: Int)
+      final case class InitialOldestState(oldest: Option[Address], safeToBeOldest: Boolean)
 
       final case class OldestChanged(oldest: Option[Address])
     }
@@ -159,6 +161,7 @@ object ClusterSingletonManager {
      */
     class OldestChangedBuffer(role: Option[String]) extends Actor {
       import OldestChangedBuffer._
+      import context.dispatcher
 
       val cluster = Cluster(context.system)
       // sort by age, oldest first
@@ -188,8 +191,9 @@ object ClusterSingletonManager {
 
       def handleInitial(state: CurrentClusterState): Unit = {
         membersByAge = immutable.SortedSet.empty(ageOrdering) ++ state.members.filter(m ⇒
-          m.status == MemberStatus.Up && matchingRole(m))
-        val initial = InitialOldestState(membersByAge.headOption.map(_.address), membersByAge.size)
+          (m.status == MemberStatus.Up || m.status == MemberStatus.Leaving) && matchingRole(m))
+        val safeToBeOldest = !state.members.exists { m ⇒ (m.status == MemberStatus.Down || m.status == MemberStatus.Exiting) }
+        val initial = InitialOldestState(membersByAge.headOption.map(_.address), safeToBeOldest)
         changes :+= initial
       }
 
@@ -264,8 +268,8 @@ class ClusterSingletonManagerIsStuck(message: String) extends AkkaException(mess
  * The actual singleton is started on the oldest node by creating a child
  * actor from the supplied `singletonProps`.
  *
- * The singleton actor is always running on the oldest member, which can
- * be determined by [[akka.cluster.Member#isOlderThan]].
+ * The singleton actor is always running on the oldest member with specified role.
+ * The oldest member is determined by [[akka.cluster.Member#isOlderThan]].
  * This can change when removing members. A graceful hand over can normally
  * be performed when current oldest node is leaving the cluster. Be aware that
  * there is a short time period when there is no active singleton during the
@@ -282,10 +286,10 @@ class ClusterSingletonManagerIsStuck(message: String) extends AkkaException(mess
  * You access the singleton actor with `actorSelection` using the names you have
  * specified when creating the ClusterSingletonManager. You can subscribe to
  * [[akka.cluster.ClusterEvent.MemberEvent]] and sort the members by age
- * ([[akka.cluster.ClusterEvent.Member#isOlderThan]]) to keep track of oldest member.
+ * ([[akka.cluster.Member#isOlderThan]]) to keep track of oldest member.
  * Alternatively the singleton actor may broadcast its existence when it is started.
  *
- * Use factory method [[ClusterSingletonManager#props] to create the
+ * Use factory method [[ClusterSingletonManager#props]] to create the
  * [[akka.actor.Props]] for the actor.
  *
  * ==Arguments==
@@ -313,7 +317,7 @@ class ClusterSingletonManagerIsStuck(message: String) extends AkkaException(mess
  *   reached. If the retry limit is reached it takes the decision to be
  *   the new oldest if previous oldest is unknown (typically removed),
  *   otherwise it initiates a new round by throwing
- *   [[akka.contrib.pattern.ClusterSingletonManagerIsStuck]] and expecting
+ *   [[akka.cluster.singleton.ClusterSingletonManagerIsStuck]] and expecting
  *   restart with fresh state. For a cluster with many members you might
  *   need to increase this retry limit because it takes longer time to
  *   propagate changes across all nodes.
@@ -324,7 +328,7 @@ class ClusterSingletonManagerIsStuck(message: String) extends AkkaException(mess
  *   oldest immediately, without knowing who was previous oldest. This is retried
  *   with the `retryInterval` until this retry limit has been reached. If the retry
  *   limit is reached it initiates a new round by throwing
- *   [[akka.contrib.pattern.ClusterSingletonManagerIsStuck]] and expecting
+ *   [[akka.cluster.singleton.ClusterSingletonManagerIsStuck]] and expecting
  *   restart with fresh state. This will also cause the singleton actor to be
  *   stopped. `maxTakeOverRetries` must be less than `maxHandOverRetries` to
  *   ensure that new oldest doesn't start singleton actor before previous is
@@ -344,6 +348,7 @@ class ClusterSingletonManager(
   require(maxTakeOverRetries < maxHandOverRetries,
     s"maxTakeOverRetries [${maxTakeOverRetries}]must be < maxHandOverRetries [${maxHandOverRetries}]")
 
+  import ClusterSingletonManager._
   import ClusterSingletonManager.Internal._
   import ClusterSingletonManager.Internal.OldestChangedBuffer._
 
@@ -417,10 +422,10 @@ class ClusterSingletonManager(
       getNextOldestChanged()
       stay
 
-    case Event(InitialOldestState(oldestOption, memberCount), _) ⇒
+    case Event(InitialOldestState(oldestOption, safeToBeOldest), _) ⇒
       oldestChangedReceived = true
-      if (oldestOption == selfAddressOption && memberCount == 1)
-        // alone, oldest immediately
+      if (oldestOption == selfAddressOption && safeToBeOldest)
+        // oldest immediately
         gotoOldest()
       else if (oldestOption == selfAddressOption)
         goto(BecomingOldest) using BecomingOldestData(None)
@@ -588,7 +593,10 @@ class ClusterSingletonManager(
     val newOldest = handOverTo.map(_.path.address)
     logInfo("Singleton terminated, hand-over done [{} -> {}]", cluster.selfAddress, newOldest)
     handOverTo foreach { _ ! HandOverDone }
-    if (selfExited || removed.contains(cluster.selfAddress))
+    if (removed.contains(cluster.selfAddress)) {
+      logInfo("Self removed, stopping ClusterSingletonManager")
+      stop()
+    } else if (selfExited)
       goto(End) using EndData
     else
       goto(Younger) using YoungerData(newOldest)
@@ -608,6 +616,9 @@ class ClusterSingletonManager(
         logInfo("Exited [{}]", m.address)
       }
       stay
+    case Event(MemberRemoved(m, _), _) if m.address == cluster.selfAddress && !selfExited ⇒
+      logInfo("Self removed, stopping ClusterSingletonManager")
+      stop()
     case Event(MemberRemoved(m, _), _) ⇒
       if (!selfExited) logInfo("Member removed [{}]", m.address)
       addRemoved(m.address)
