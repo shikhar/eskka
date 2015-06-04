@@ -44,7 +44,9 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
 
   val cluster = Cluster(context.system)
 
-  val abdicationCheck = context.system.scheduler.schedule(CheckInterval, CheckInterval, self, Check)
+  val scheduler = context.system.scheduler
+
+  val abdicationCheck = scheduler.schedule(CheckInterval, CheckInterval, self, Check)
 
   override def postStop() {
     abdicationCheck.cancel()
@@ -66,13 +68,14 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
   def abdicate: Actor.Receive = {
     case Abdicate =>
       killSeq.foreach(context.stop)
+
       SubmitClusterStateUpdate(clusterService, "eskka-quorum-loss-abdicator", Priority.URGENT, runOnlyOnMaster = false, abdicationClusterState) onComplete {
         case Success(_) =>
           log.debug("cleared cluster state, now invoking restart hook")
           restartHook()
         case Failure(e) =>
           log.error(e, "failed to clear cluster state, will retry in {}", CheckInterval)
-          context.system.scheduler.scheduleOnce(CheckInterval, self, Abdicate)
+          scheduler.scheduleOnce(CheckInterval, self, Abdicate)
       }
   }
 
