@@ -4,7 +4,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 import akka.actor._
-import akka.cluster.{ Cluster, ClusterEvent }
+import akka.cluster.Cluster
+import akka.cluster.singleton.{ ClusterSingletonManager, ClusterSingletonManagerSettings }
 import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
@@ -35,7 +36,7 @@ class EskkaCluster(clusterName: ClusterName,
                    networkService: NetworkService,
                    clusterService: ClusterService,
                    localNode: DiscoveryNode,
-                   initialStateListeners: Seq[InitialStateDiscoveryListener],
+                   initialStateListeners: List[InitialStateDiscoveryListener],
                    restartHook: () => Unit) {
 
   import EskkaCluster._
@@ -58,23 +59,26 @@ class EskkaCluster(clusterName: ClusterName,
 
       val pinger = system.actorOf(Pinger.props, ActorNames.Pinger)
 
-      val follower = system.actorOf(Follower.props(clusterName, localNode, votingMembers, clusterService), ActorNames.Follower)
+      val follower = system.actorOf(Follower.props(localNode, votingMembers, clusterService), ActorNames.Follower)
 
       val partitionMonitor = if (cluster.selfRoles(Roles.Voter)) {
         Some(system.actorOf(QuorumBasedPartitionMonitor.props(votingMembers, partitionEvalDelay, partitionPingTimeout), "partition-monitor"))
-      } else
+      } else {
         None
+      }
 
       val csm = if (cluster.selfRoles.contains(Roles.MasterEligible)) {
-        Some(system.actorOf(singleton.ClusterSingletonManager.props(
-          singletonProps = Master.props(localNode, votingMembers, clusterService),
+        val csmSettings = new ClusterSingletonManagerSettings(
           singletonName = ActorNames.Master,
-          terminationMessage = PoisonPill,
-          role = Some(Roles.MasterEligible)), name = ActorNames.CSM))
+          role = Some(Roles.MasterEligible),
+          removalMargin = Duration.Zero, // TODO wht
+          handOverRetryInterval = Duration(1, TimeUnit.SECONDS) // TODO wht
+        )
+        Some(system.actorOf(ClusterSingletonManager.props(Master.props(localNode, votingMembers, clusterService), PoisonPill, csmSettings), name = ActorNames.CSM))
       } else
         None
 
-      val killSeq = Seq(pinger, follower) ++ Seq(partitionMonitor, csm).flatten
+      val killSeq = List(pinger, follower) ++ List(partitionMonitor, csm).flatten
       system.actorOf(QuorumLossAbdicator.props(localNode, votingMembers, discoverySettings, clusterService, killSeq, restartHook), "abdicator")
 
       if (initialStateListeners.nonEmpty) {
@@ -114,24 +118,14 @@ class EskkaCluster(clusterName: ClusterName,
   def leave(context: String): Future[_] = {
     logger.info("Leaving the cluster [{}]", context)
     val p = Promise[Any]()
-    cluster.subscribe(system.actorOf(Props(new Actor {
-      override def receive = {
-        case ClusterEvent.MemberRemoved(m, _) if m.address == cluster.selfAddress =>
-          p.success(Nil)
-          context.stop(self)
-      }
-    })), classOf[ClusterEvent.MemberEvent])
+    cluster.registerOnMemberRemoved(p.success(Nil))
     cluster.leave(cluster.selfAddress)
     p.future
   }
 
-  def shutdown(context: String) {
-    logger.info("Shutting down actor system [{}]", context)
-    system.shutdown()
-  }
-
-  def awaitTermination(timeout: Timeout) {
-    system.awaitTermination(timeout.duration)
+  def shutdown(context: String): Future[_] = {
+    logger.info("Terminating actor system [{}]", context)
+    system.terminate()
   }
 
   private def makeActorSystem(): ActorSystem = {
@@ -152,20 +146,21 @@ class EskkaCluster(clusterName: ClusterName,
 
     val bindPort = eskkaSettings.getAsInt("port", if (isClientNode) 0 else DefaultPort)
 
-    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(bindHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort").toSeq
+    val seedNodes = eskkaSettings.getAsArray("seed_nodes", Array(bindHost)).map(addr => if (addr.contains(':')) addr else s"$addr:$DefaultPort").toList
     val seedNodeAddresses = seedNodes.map(hostPort => s"akka.tcp://$name@$hostPort")
 
-    val roles = Seq(
+    val roles = List(
       if (isMasterNode) Some(Roles.MasterEligible) else None,
-      if (seedNodes.contains(s"$bindHost:$bindPort")) Some(Roles.Voter) else None).flatten
+      if (seedNodes.contains(s"$bindHost:$bindPort")) Some(Roles.Voter) else None
+    ).flatten
 
     val quorumOfVoters = (seedNodes.size / 2) + 1
 
     val heartbeatInterval =
-      Duration(eskkaSettings.getAsTime("heartbeat_interval", TimeValue.timeValueSeconds(1)).millis(), TimeUnit.MILLISECONDS)
+      Duration(eskkaSettings.getAsTime("heartbeat_interval", TimeValue.timeValueSeconds(1)).millis(), TimeUnit.MILLISECONDS) // TODO wht
 
     val acceptableHeartbeatPause =
-      Duration(eskkaSettings.getAsTime("acceptable_heartbeat_pause", TimeValue.timeValueSeconds(3)).millis(), TimeUnit.MILLISECONDS)
+      Duration(eskkaSettings.getAsTime("acceptable_heartbeat_pause", TimeValue.timeValueSeconds(3)).millis(), TimeUnit.MILLISECONDS) // TODO wht
 
     val eskkaConfig = ConfigFactory.parseMap(Map(
       "akka.daemonic" -> "on",
@@ -179,18 +174,19 @@ class EskkaCluster(clusterName: ClusterName,
 
     logger.debug("creating actor system with eskka config {}", eskkaConfig)
 
-    ActorSystem(name, config = Some(eskkaConfig.withFallback(ConfigFactory.load())))
+    val classLoader = getClass.getClassLoader
+    ActorSystem(name, classLoader = Some(classLoader), config = Some(eskkaConfig.withFallback(ConfigFactory.load(classLoader))))
   }
 
   private def partitionEvalDelay =
-    Duration(settings.getAsTime("discovery.eskka.partition.eval-delay", TimeValue.timeValueSeconds(10)).millis(), TimeUnit.MILLISECONDS)
+    Duration(settings.getAsTime("discovery.eskka.partition.eval-delay", TimeValue.timeValueSeconds(10)).millis(), TimeUnit.MILLISECONDS) // TODO wht
 
   private def partitionPingTimeout =
-    Duration(settings.getAsTime("discovery.eskka.partition.ping-timeout", TimeValue.timeValueSeconds(2)).millis(), TimeUnit.MILLISECONDS)
+    Duration(settings.getAsTime("discovery.eskka.partition.ping-timeout", TimeValue.timeValueSeconds(2)).millis(), TimeUnit.MILLISECONDS) // TODO wht
 
   private def determineBindHost(x: String): String = {
-    if ((x.startsWith("#") && x.endsWith("#")) || (x.startsWith("_") && x.endsWith("_")))
-      networkService.resolveBindHostAddress(x).getHostAddress
+    if ((x.startsWith("#") && x.endsWith("#")) || (x.startsWith("_") && x.endsWith("_"))) // TODO wht
+      networkService.resolveBindHostAddress(x)(0).getHostAddress  // TODO wht
     else
       x
   }

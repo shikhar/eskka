@@ -9,4 +9,5 @@ target/
 .idea/tasks.xml
 .idea/dictionaries
 .idea/uiDesigner.xml
+.idea/thriftCompiler.xml
 .idea/libraries/

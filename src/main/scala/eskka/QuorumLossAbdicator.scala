@@ -21,7 +21,7 @@ object QuorumLossAbdicator {
             votingMembers: VotingMembers,
             discoverySettings: DiscoverySettings,
             clusterService: ClusterService,
-            killSeq: Seq[ActorRef],
+            killSeq: List[ActorRef],
             restartHook: () => Unit) =
     Props(classOf[QuorumLossAbdicator], localNode, votingMembers, discoverySettings, clusterService, killSeq, restartHook)
 
@@ -35,7 +35,7 @@ class QuorumLossAbdicator(localNode: DiscoveryNode,
                           votingMembers: VotingMembers,
                           discoverySettings: DiscoverySettings,
                           clusterService: ClusterService,
-                          killSeq: Seq[ActorRef],
+                          killSeq: List[ActorRef],
                           restartHook: () => Unit)
   extends Actor with ActorLogging {
 

@@ -21,30 +21,43 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="library" name="SBT: com.google.protobuf:protobuf-java:2.5.0:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: com.spatial4j:spatial4j:0.4.1:jar" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe:config:1.2.1:jar" level="project" />
-    <orderEntry type="library" name="SBT: io.netty:netty:3.8.0.Final:jar" level="project" />
     <orderEntry type="library" name="SBT: org.uncommons.maths:uncommons-maths:1.2.2a:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.antlr:antlr-runtime:3.5:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.ow2.asm:asm:4.1:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.ow2.asm:asm-commons:4.1:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-analyzers-common:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-core:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-grouping:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-highlighter:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-join:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-memory:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-misc:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-queries:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-queryparser:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-sandbox:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-spatial:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-suggest:4.10.4:jar" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="SBT: org.elasticsearch:elasticsearch:1.5.2:jar" level="project" />
-    <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.11.6:jar" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.3.11:jar" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.3.11:jar" level="project" />
-    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.3.11:jar" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe:config:1.3.0:jar" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.11:2.4.0:jar" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster_2.11:2.4.0:jar" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-protobuf_2.11:2.4.0:jar" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-remote_2.11:2.4.0:jar" level="project" />
+    <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.11.7:jar" level="project" />
+    <orderEntry type="library" name="SBT: com.typesafe.akka:akka-cluster-tools_2.11:2.4.0:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.carrotsearch:hppc:0.7.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.fasterxml.jackson.core:jackson-core:2.5.3:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.5.3:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.5.3:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.5.3:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.google.guava:guava:18.0:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.ning:compress-lzf:1.0.2:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.spatial4j:spatial4j:0.4.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.tdunning:t-digest:3.0:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.twitter:jsr166e:1.1.0:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: commons-cli:commons-cli:1.3.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: joda-time:joda-time:2.8.2:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-analyzers-common:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-backward-codecs:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-core:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-grouping:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-highlighter:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-join:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-memory:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-misc:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-queries:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-queryparser:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-sandbox:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-spatial:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.lucene:lucene-suggest:5.2.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.elasticsearch:elasticsearch:2.0.0-rc1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.hdrhistogram:HdrHistogram:2.1.6:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.joda:joda-convert:1.2:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.yaml:snakeyaml:1.12:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: io.netty:netty:3.10.3.Final:jar" level="project" />
   </component>
 </module>

@@ -8,8 +8,8 @@ import akka.cluster.{ Cluster, ClusterEvent, MemberStatus }
 import akka.pattern.ask
 import akka.util.Timeout
 
-import concurrent.forkjoin.ThreadLocalRandom
 import scala.concurrent.duration.{ Duration, FiniteDuration }
+import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.concurrent.{ Future, Promise }
 import scala.util.Success
 
@@ -76,6 +76,9 @@ class QuorumBasedPartitionMonitor(votingMembers: VotingMembers, evalDelay: Finit
       registeredVoters += (node -> ref)
 
     case mEvent: ClusterEvent.MemberEvent => mEvent match {
+
+      case ClusterEvent.MemberWeaklyUp(m) =>
+      // Ignore
 
       case ClusterEvent.MemberUp(m) =>
         if (votingMembers.addresses(m.address)) {

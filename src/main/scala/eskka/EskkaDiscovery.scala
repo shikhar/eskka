@@ -3,24 +3,24 @@ package eskka
 import java.util.concurrent.TimeUnit
 
 import akka.util.Timeout
-import org.elasticsearch.cluster.node.{ DiscoveryNode, DiscoveryNodeService }
-import org.elasticsearch.cluster.routing.allocation.AllocationService
-import org.elasticsearch.cluster.{ ClusterName, ClusterService, ClusterState }
+import org.elasticsearch.Version
+import org.elasticsearch.cluster.node.{DiscoveryNode, DiscoveryNodeService}
+import org.elasticsearch.cluster.routing.RoutingService
+import org.elasticsearch.cluster.{ClusterChangedEvent, ClusterName, ClusterService}
 import org.elasticsearch.common.component.AbstractLifecycleComponent
 import org.elasticsearch.common.inject.Inject
 import org.elasticsearch.common.network.NetworkService
 import org.elasticsearch.common.settings.Settings
 import org.elasticsearch.common.unit.TimeValue
 import org.elasticsearch.discovery.Discovery.AckListener
-import org.elasticsearch.discovery.{ Discovery, DiscoveryService, DiscoverySettings, InitialStateDiscoveryListener }
+import org.elasticsearch.discovery.{Discovery, DiscoveryService, DiscoverySettings, InitialStateDiscoveryListener}
 import org.elasticsearch.node.service.NodeService
 import org.elasticsearch.threadpool.ThreadPool
 import org.elasticsearch.transport.Transport
-import org.elasticsearch.{ ElasticsearchIllegalStateException, Version }
 
-import concurrent.{ Await, TimeoutException }
 import scala.collection.mutable
 import scala.concurrent.forkjoin.ThreadLocalRandom
+import scala.concurrent.{Await, TimeoutException}
 import scala.util.control.Exception
 
 object EskkaDiscovery {
@@ -115,8 +115,7 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
   private def destroyEskka(context: String) {
     for (e <- eskka) {
       TimeoutExceptionIgnored(Await.ready(e.leave(context), LeaveTimeout.duration))
-      e.shutdown(context)
-      TimeoutExceptionIgnored(e.awaitTermination(ShutdownTimeout.duration))
+      TimeoutExceptionIgnored(Await.ready(e.shutdown(context), ShutdownTimeout.duration))
     }
     eskka = None
   }
@@ -130,20 +129,20 @@ class EskkaDiscovery @Inject() (clusterName: ClusterName,
 
   override def nodeDescription = clusterName.value + "/" + nodeId
 
-  override def publish(clusterState: ClusterState, ackListener: AckListener) {
-    logger.trace("publishing new cluster state [{}]", clusterState)
-    eskka.getOrElse(throw new ElasticsearchIllegalStateException("eskka is not available")).publish(clusterState, ackListener)
+  override def publish(changeEvent: ClusterChangedEvent, ackListener: AckListener) {
+    logger.trace("publishing new cluster state [{}]", changeEvent.state())
+    eskka.getOrElse(throw new IllegalStateException("eskka is not available")).publish(changeEvent.state(), ackListener)
   }
 
   override def setNodeService(nodeService: NodeService) {
   }
 
-  override def setAllocationService(allocationService: AllocationService) {
+  override def setRoutingService(routingService: RoutingService) {
   }
 
   private def makeEskkaCluster(initial: Boolean): EskkaCluster = {
     new EskkaCluster(clusterName, settings, discoverySettings, threadPool, networkService, clusterService, localNode,
-      if (initial) initialStateListeners.toSeq else Seq(), { () =>
+      if (initial) initialStateListeners.toList else Nil, { () =>
         threadPool.generic().execute(new Runnable {
           override def run() {
             restartEskka("restart")

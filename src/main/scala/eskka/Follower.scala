@@ -12,8 +12,8 @@ import scala.util.{ Failure, Success, Try }
 
 object Follower {
 
-  def props(clusterName: ClusterName, localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
-    Props(classOf[Follower], clusterName, localNode, votingMembers, clusterService)
+  def props(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterService: ClusterService) =
+    Props(classOf[Follower], localNode, votingMembers, clusterService)
 
   case class LocalMasterDiscoverySubmitNotif(transition: Try[ClusterStateTransition])
 
@@ -29,8 +29,7 @@ object Follower {
 
 }
 
-class Follower(clusterName: ClusterName,
-               localNode: DiscoveryNode,
+class Follower(localNode: DiscoveryNode,
                votingMembers: VotingMembers,
                clusterService: ClusterService) extends Actor with ActorLogging {
 
@@ -94,7 +93,7 @@ class Follower(clusterName: ClusterName,
     case PublishReq(sender, version, totalChunks, receivedChunks, data) =>
       assume(totalChunks == receivedChunks)
 
-      Try(ClusterStateSerialization.fromBytes(data, localNode, clusterName)) match {
+      Try(ClusterStateSerialization.fromBytes(data, localNode)) match {
         case Success(updatedState) =>
           updatedState.status(ClusterState.ClusterStateStatus.RECEIVED)
 

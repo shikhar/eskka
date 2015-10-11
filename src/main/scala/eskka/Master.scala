@@ -131,6 +131,9 @@ class Master(localNode: DiscoveryNode, votingMembers: VotingMembers, clusterServ
 
     case mEvent: ClusterEvent.MemberEvent => mEvent match {
 
+      case ClusterEvent.MemberWeaklyUp(m) =>
+      // Ignore
+
       case ClusterEvent.MemberUp(m) =>
         addFollower(m.address)
 
